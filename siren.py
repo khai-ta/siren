@@ -288,29 +288,123 @@ def summarize_window_metrics(window_metrics: List[Dict]) -> Dict[str, Dict[str, 
     return summary
 
 
-def build_prompt(
-    anomalies: List[Dict],
-    window_metric_summary: Dict[str, Dict[str, float]],
-    window_logs: List[Dict],
-) -> str:
-    incident_ts = anomalies[0]["timestamp"] if anomalies else "unknown"
+def build_investigation_context(anomalies: List[Dict], logs: List[Dict], metrics: List[Dict]) -> str:
+    if not anomalies:
+        return "=== SIREN INCIDENT INVESTIGATION ===\nDetected at: unknown\nAffected services: (none)"
 
+    sorted_anomalies = sorted(
+        anomalies,
+        key=lambda a: (a["timestamp"], ANOMALY_SERVICE_ORDER.get(a["service"], 99)),
+    )
+    earliest_ts = sorted_anomalies[0]["timestamp"]
+    earliest_dt = _parse_ts(earliest_ts)
+
+    seen_services = set()
+    affected_services = []
+    for anomaly in sorted_anomalies:
+        service = anomaly["service"]
+        if service not in seen_services:
+            seen_services.add(service)
+            affected_services.append(service)
+
+    anomaly_times = [_parse_ts(a["timestamp"]) for a in sorted_anomalies]
+    window_start = min(anomaly_times) - timedelta(minutes=5)
+    window_end = max(anomaly_times) + timedelta(minutes=5)
+
+    window_logs = [
+        log
+        for log in logs
+        if window_start <= _parse_ts(log["timestamp"]) <= window_end
+    ]
+    window_logs.sort(key=lambda x: x["timestamp"])
+
+    pre_incident_rows = [
+        row
+        for row in metrics
+        if _parse_ts(row["timestamp"]) < earliest_dt
+    ]
+
+    baseline_by_service: Dict[str, Dict[str, float]] = {}
+    for service in SERVICES:
+        svc_rows = [row for row in pre_incident_rows if row["service"] == service]
+        if not svc_rows:
+            baseline_by_service[service] = {"error_rate": 0.0, "latency_p99": 0.0}
+            continue
+        baseline_by_service[service] = {
+            "error_rate": statistics.mean(row["error_rate"] for row in svc_rows),
+            "latency_p99": statistics.mean(row["latency_p99"] for row in svc_rows),
+        }
+
+    anomaly_window_rows = [
+        row
+        for row in metrics
+        if window_start <= _parse_ts(row["timestamp"]) <= window_end
+    ]
+    peak_by_service: Dict[str, Dict[str, float]] = {}
+    for service in affected_services:
+        svc_rows = [row for row in anomaly_window_rows if row["service"] == service]
+        if not svc_rows:
+            peak_by_service[service] = {"error_rate": 0.0, "latency_p99": 0.0}
+            continue
+        peak_by_service[service] = {
+            "error_rate": max(row["error_rate"] for row in svc_rows),
+            "latency_p99": max(row["latency_p99"] for row in svc_rows),
+        }
+
+    lines = []
+    lines.append("=== SIREN INCIDENT INVESTIGATION ===")
+    lines.append(f"Detected at: {earliest_ts}")
+    lines.append(f"Affected services: {', '.join(affected_services)}")
+    lines.append("")
+
+    lines.append("=== ANOMALY SUMMARY ===")
+    for anomaly in sorted_anomalies:
+        lines.append(
+            f"[{anomaly['timestamp']}] {anomaly['service']} — {anomaly['metric']} spiked to {anomaly['value']} "
+            f"(z-score: {anomaly['zscore']:.1f}, baseline: {anomaly['baseline_mean']:.4f})"
+        )
+    lines.append("")
+
+    lines.append("=== SERVICE DEPENDENCY GRAPH ===")
+    lines.append("api-gateway → auth-service, recommendation-service, payment-service")
+    lines.append("auth-service → database, cache")
+    lines.append("payment-service → database, message-queue")
+    lines.append("recommendation-service → cache, database")
+    lines.append("database → (none)")
+    lines.append("cache → (none)")
+    lines.append("message-queue → (none)")
+    lines.append("")
+
+    lines.append("=== RELEVANT LOGS (anomaly window) ===")
+    for log in window_logs:
+        lines.append(f"[{log['timestamp']}] [{log['level']}] {log['service']}: {log['message']}")
+    lines.append("")
+
+    lines.append("=== BASELINE METRICS (pre-incident avg) ===")
+    for service in SERVICES:
+        baseline = baseline_by_service[service]
+        lines.append(f"{service} | {baseline['error_rate']:.6f} | {baseline['latency_p99']:.4f}")
+    lines.append("")
+
+    lines.append("=== ANOMALY WINDOW METRICS (peak values) ===")
+    for service in affected_services:
+        peak = peak_by_service[service]
+        lines.append(f"{service} | {peak['error_rate']:.6f} | {peak['latency_p99']:.4f}")
+
+    return "\n".join(lines)
+
+
+def build_prompt(
+    investigation_context: str,
+) -> str:
     system_instruction = (
         "You are an SRE incident commander AI. Produce a concise root cause analysis from metrics and logs. "
         "Include: incident summary, most likely root cause, propagation path, evidence, confidence (0-1), and 3 remediation actions."
     )
 
-    prompt_payload = {
-        "incident_timestamp": incident_ts,
-        "dependency_graph": DEPENDENCIES,
-        "anomalies": anomalies[:40],
-        "window_metric_summary": window_metric_summary,
-        "window_logs": window_logs,
-    }
-
     return (
         f"SYSTEM INSTRUCTION:\n{system_instruction}\n\n"
-        f"INCIDENT DATA (JSON):\n{json.dumps(prompt_payload, indent=2)}\n\n"
+        f"INCIDENT DATA:\n{investigation_context}\n\n"
         "Return markdown with sections:\n"
         "1) Incident Summary\n"
         "2) Most Likely Root Cause\n"
@@ -428,11 +522,10 @@ def main() -> None:
 
     logs = generate_logs(metrics, incident_start_minute)
     incident_ts = anomalies[0]["timestamp"]
-    metric_window = get_windowed_metrics(metrics, incident_ts, minutes=5)
     log_window = get_windowed_logs(logs, incident_ts, minutes=5)
-    metric_summary = summarize_window_metrics(metric_window)
+    investigation_context = build_investigation_context(anomalies, logs, metrics)
 
-    prompt = build_prompt(anomalies, metric_summary, log_window)
+    prompt = build_prompt(investigation_context)
     rca = call_llm(prompt)
 
     print_run_summary(metrics, anomalies, log_window)
