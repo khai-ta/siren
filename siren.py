@@ -37,6 +37,40 @@ INCIDENT_MULTIPLIERS = {
     "api-gateway": {"latency_p99": 2.0, "error_rate": 4.0},
 }
 
+LOG_TEMPLATES = {
+    "database": [
+        "Query execution timeout after {duration}ms - table: orders",
+        "Connection pool exhausted: 0 of {pool_size} connections available",
+        "Lock wait timeout exceeded; try restarting transaction",
+        "Slow query detected: SELECT * FROM transactions WHERE user_id=? ({duration}ms)",
+    ],
+    "auth-service": [
+        "Upstream database call failed after {duration}ms - retrying (attempt {attempt}/3)",
+        "Token validation timeout - database unreachable",
+        "Circuit breaker OPEN: database error rate {error_pct}% exceeds threshold",
+    ],
+    "payment-service": [
+        "Payment processing failed: database write timeout after {duration}ms",
+        "Transaction rollback: upstream service unavailable",
+        "Dead letter queue depth: {depth} - consumer falling behind",
+    ],
+    "recommendation-service": [
+        "Cache miss rate elevated: {miss_pct}% - falling back to database",
+        "Feature vector fetch timeout after {duration}ms",
+    ],
+    "api-gateway": [
+        "Upstream timeout: auth-service failed to respond within {duration}ms",
+        "503 Service Unavailable returned to client - downstream error rate {error_pct}%",
+        "Request queue depth: {depth} - shedding load",
+    ],
+    "cache": [
+        "Cache hit rate nominal: {hit_pct}%",
+    ],
+    "message-queue": [
+        "Queue depth nominal: {depth} messages",
+    ],
+}
+
 METRIC_KEYS = ["rps", "error_rate", "latency_p50", "latency_p99", "cpu", "memory"]
 ANOMALY_KEYS = ["error_rate", "latency_p99"]
 
@@ -143,42 +177,57 @@ def detect_anomalies(metrics: List[Dict], z_threshold: float = 3.0) -> List[Dict
     return anomalies
 
 
-def generate_logs(metrics: List[Dict], incident_start_minute: int = 30) -> List[Dict]:
-    """Generate hardcoded service logs aligned to metric timeline"""
+def _render_log_message(template: str, row: Dict) -> str:
+    error_pct = max(0.01, row["error_rate"] * 100.0)
+    return template.format(
+        duration=random.randint(250, 3500),
+        pool_size=random.choice([60, 80, 100, 120]),
+        attempt=random.randint(1, 3),
+        error_pct=round(error_pct, 2),
+        depth=random.randint(40, 3000),
+        miss_pct=round(random.uniform(18.0, 75.0), 1),
+        hit_pct=round(random.uniform(89.0, 99.9), 1),
+    )
+
+
+def generate_logs(metrics: List[Dict], incident_start_minute: int) -> List[Dict]:
+    """Generate 1-3 realistic log entries when service error_rate exceeds baseline*3"""
     if not metrics:
         return []
 
+    random.seed(43)
     all_timestamps = sorted({_parse_ts(m["timestamp"]) for m in metrics})
     start = all_timestamps[0]
     incident_start = start + timedelta(minutes=incident_start_minute)
 
     logs: List[Dict] = []
+    for row in metrics:
+        service = row["service"]
+        ts = _parse_ts(row["timestamp"])
+        baseline_error = SERVICES[service]["error_rate"]
 
-    def add_log(ts: datetime, service: str, level: str, message: str) -> None:
-        logs.append(
-            {
-                "timestamp": ts.isoformat(),
-                "service": service,
-                "level": level,
-                "message": message,
-            }
-        )
+        if ts < incident_start:
+            continue
+        if row["error_rate"] <= baseline_error * 3.0:
+            continue
 
-    # Pre-incident health logs
-    add_log(start + timedelta(minutes=5), "database", "INFO", "Query latency stable, p99 under 35ms")
-    add_log(start + timedelta(minutes=10), "auth-service", "INFO", "Token validation throughput normal")
-    add_log(start + timedelta(minutes=16), "payment-service", "INFO", "Payment authorization queue healthy")
-    add_log(start + timedelta(minutes=20), "api-gateway", "INFO", "Upstream response times within SLO")
+        templates = LOG_TEMPLATES.get(service, [])
+        if not templates:
+            continue
 
-    # Incident logs around the injected failure
-    add_log(incident_start + timedelta(seconds=5), "database", "ERROR", "Connection pool saturation detected")
-    add_log(incident_start + timedelta(seconds=15), "database", "ERROR", "Query timeout after 2000ms for SELECT user_profile")
-    add_log(incident_start + timedelta(seconds=35), "auth-service", "ERROR", "Downstream timeout calling database on session lookup")
-    add_log(incident_start + timedelta(seconds=50), "payment-service", "ERROR", "Database timeout during transaction commit")
-    add_log(incident_start + timedelta(seconds=65), "recommendation-service", "WARN", "Feature fetch degraded due to slow database reads")
-    add_log(incident_start + timedelta(seconds=90), "api-gateway", "ERROR", "502 responses increased from auth-service and payment-service")
-    add_log(incident_start + timedelta(minutes=2, seconds=10), "api-gateway", "WARN", "Error budget burn rate above threshold")
-    add_log(incident_start + timedelta(minutes=3), "database", "ERROR", "Slow query log spike, lock waits rising")
+        entry_count = random.randint(1, 3)
+        for _ in range(entry_count):
+            template = random.choice(templates)
+            level = "ERROR" if row["error_rate"] >= baseline_error * 5.0 else "WARN"
+            logs.append(
+                {
+                    "timestamp": ts.isoformat(),
+                    "service": service,
+                    "level": level,
+                    "message": _render_log_message(template, row),
+                    "trace_id": "".join(random.choice("0123456789abcdef") for _ in range(32)),
+                }
+            )
 
     logs.sort(key=lambda x: x["timestamp"])
     return logs
@@ -345,14 +394,15 @@ def print_run_summary(metrics: List[Dict], anomalies: List[Dict], window_logs: L
 
 
 def main() -> None:
-    metrics = generate_metrics()
+    incident_start_minute = 30
+    metrics = generate_metrics(incident_start_minute=incident_start_minute)
     anomalies = detect_anomalies(metrics)
 
     if not anomalies:
         print("No anomaly detected")
         return
 
-    logs = generate_logs(metrics)
+    logs = generate_logs(metrics, incident_start_minute)
     incident_ts = anomalies[0]["timestamp"]
     metric_window = get_windowed_metrics(metrics, incident_ts, minutes=5)
     log_window = get_windowed_logs(logs, incident_ts, minutes=5)
