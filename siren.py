@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-import json
 import os
 import random
 import statistics
-import urllib.error
-import urllib.request
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Tuple
+
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
 
 SERVICES = {
     "api-gateway": {"rps": 500, "error_rate": 0.001, "latency_p50": 12, "latency_p99": 45, "cpu": 30, "memory": 40},
@@ -394,87 +396,57 @@ def build_investigation_context(anomalies: List[Dict], logs: List[Dict], metrics
     return "\n".join(lines)
 
 
-def build_prompt(
-    investigation_context: str,
-) -> str:
-    system_instruction = (
-        "You are an SRE incident commander AI. Produce a concise root cause analysis from metrics and logs. "
-        "Include: incident summary, most likely root cause, propagation path, evidence, confidence (0-1), and 3 remediation actions."
+def investigate(context: str) -> str:
+    """Call OpenAI directly with a fixed Siren investigation prompt"""
+    if OpenAI is None:
+        return "openai SDK is not installed. Run: pip install openai\n\n" + local_rca_fallback()
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return "OPENAI_API_KEY is not set\n\n" + local_rca_fallback()
+
+    system_prompt = (
+        "You are Siren, an autonomous AI Site Reliability Engineer. You have been given \n"
+        "telemetry data from a distributed system that is experiencing an incident. \n"
+        "Your job is to analyze the evidence and produce a structured root cause analysis.\n\n"
+        "Be precise and systematic. Follow the evidence - do not guess. If the dependency \n"
+        "graph shows that service A calls service B, and service B degraded first, that \n"
+        "is strong evidence that B is the root cause, not A."
     )
 
-    return (
-        f"SYSTEM INSTRUCTION:\n{system_instruction}\n\n"
-        f"INCIDENT DATA:\n{investigation_context}\n\n"
-        "Return markdown with sections:\n"
-        "1) Incident Summary\n"
-        "2) Most Likely Root Cause\n"
-        "3) Blast Radius and Propagation\n"
-        "4) Key Evidence\n"
-        "5) Confidence\n"
-        "6) Recommended Remediations\n"
+    user_prompt = (
+        "Analyze the following incident telemetry and produce a Root Cause Analysis report.\n\n"
+        f"{context}\n\n"
+        "Respond in exactly this format:\n\n"
+        "## INCIDENT SUMMARY\n"
+        "One paragraph describing what happened, which services were affected, and the timeline.\n\n"
+        "## ROOT CAUSE\n"
+        "The single most likely root cause, stated as one clear sentence.\n\n"
+        "## EVIDENCE\n"
+        "3-5 bullet points of specific evidence from the telemetry that supports your root cause conclusion.\n\n"
+        "## BLAST RADIUS\n"
+        "Which services were directly affected vs transitively affected, and how.\n\n"
+        "## CONFIDENCE\n"
+        "A percentage (0-100%) reflecting how confident you are in this root cause, and one sentence explaining why.\n\n"
+        "## RECOMMENDED ACTIONS\n"
+        "3-5 concrete remediation steps, ordered by priority."
     )
 
-
-def _post_json(url: str, headers: Dict[str, str], payload: Dict) -> Dict:
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url=url, data=data, headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        body = resp.read().decode("utf-8")
-        return json.loads(body)
-
-
-def call_llm(prompt: str) -> str:
-    """
-    Uses Claude when ANTHROPIC_API_KEY is set
-    Falls back to OpenAI Chat Completions when OPENAI_API_KEY is set
-    Returns a deterministic local RCA when no keys are available
-    """
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-    openai_key = os.getenv("OPENAI_API_KEY")
-
-    if anthropic_key:
-        model = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
-        try:
-            payload = {
-                "model": model,
-                "max_tokens": 1000,
-                "temperature": 0.2,
-                "messages": [{"role": "user", "content": prompt}],
-            }
-            resp = _post_json(
-                url="https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": anthropic_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                payload=payload,
-            )
-            return "".join(block.get("text", "") for block in resp.get("content", []) if block.get("type") == "text").strip()
-        except (urllib.error.URLError, urllib.error.HTTPError, KeyError, ValueError) as err:
-            return f"LLM call failed for Claude: {err}\n\n" + local_rca_fallback()
-
-    if openai_key:
+    try:
+        client = OpenAI(api_key=api_key)
         model = os.getenv("OPENAI_MODEL", "gpt-4o")
-        try:
-            payload = {
-                "model": model,
-                "temperature": 0.2,
-                "messages": [{"role": "user", "content": prompt}],
-            }
-            resp = _post_json(
-                url="https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {openai_key}",
-                    "content-type": "application/json",
-                },
-                payload=payload,
-            )
-            return resp["choices"][0]["message"]["content"].strip()
-        except (urllib.error.URLError, urllib.error.HTTPError, KeyError, ValueError) as err:
-            return f"LLM call failed for OpenAI: {err}\n\n" + local_rca_fallback()
-
-    return local_rca_fallback()
+        response = client.responses.create(
+            model=model,
+            temperature=0,
+            instructions=system_prompt,
+            input=user_prompt,
+        )
+        text = getattr(response, "output_text", "")
+        if text:
+            return text.strip()
+        return "OpenAI response did not include text content\n\n" + local_rca_fallback()
+    except Exception as err:
+        return f"OpenAI investigation failed: {err}\n\n" + local_rca_fallback()
 
 
 def local_rca_fallback() -> str:
@@ -525,8 +497,7 @@ def main() -> None:
     log_window = get_windowed_logs(logs, incident_ts, minutes=5)
     investigation_context = build_investigation_context(anomalies, logs, metrics)
 
-    prompt = build_prompt(investigation_context)
-    rca = call_llm(prompt)
+    rca = investigate(investigation_context)
 
     print_run_summary(metrics, anomalies, log_window)
     print("RCA Report")
