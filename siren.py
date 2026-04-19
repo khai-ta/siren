@@ -73,6 +73,15 @@ LOG_TEMPLATES = {
 
 METRIC_KEYS = ["rps", "error_rate", "latency_p50", "latency_p99", "cpu", "memory"]
 ANOMALY_KEYS = ["error_rate", "latency_p99"]
+ANOMALY_SERVICE_ORDER = {
+    "database": 0,
+    "auth-service": 1,
+    "payment-service": 2,
+    "recommendation-service": 3,
+    "api-gateway": 4,
+    "cache": 5,
+    "message-queue": 6,
+}
 
 
 def _noisy_value(base_value: float) -> float:
@@ -133,19 +142,28 @@ def _parse_ts(ts: str) -> datetime:
 
 def detect_anomalies(metrics: List[Dict], z_threshold: float = 3.0) -> List[Dict]:
     """
-    Calculate z-scores by service and metric using all data before incident onset estimate
-    Flags points where |z| >= threshold on error_rate and latency_p99
+    Group by service and compute baseline from first 30 minutes
+    Scan second 30 minutes and return the first anomalous onset per service
     """
     by_service: Dict[str, List[Dict]] = defaultdict(list)
     for row in metrics:
         by_service[row["service"]].append(row)
 
+    all_timestamps = sorted(_parse_ts(row["timestamp"]) for row in metrics)
+    if not all_timestamps:
+        return []
+    start_ts = all_timestamps[0]
+    baseline_end = start_ts + timedelta(minutes=30)
+    scan_end = baseline_end + timedelta(minutes=30)
+
     anomalies: List[Dict] = []
 
     for service, rows in by_service.items():
         rows.sort(key=lambda r: r["timestamp"])
-        split_idx = max(1, len(rows) // 2)
-        baseline_rows = rows[:split_idx]
+        baseline_rows = [r for r in rows if _parse_ts(r["timestamp"]) < baseline_end]
+        scan_rows = [r for r in rows if baseline_end <= _parse_ts(r["timestamp"]) <= scan_end]
+        if not baseline_rows or not scan_rows:
+            continue
 
         baseline_stats: Dict[str, Tuple[float, float]] = {}
         for metric in ANOMALY_KEYS:
@@ -156,24 +174,30 @@ def detect_anomalies(metrics: List[Dict], z_threshold: float = 3.0) -> List[Dict
                 std = 1e-9
             baseline_stats[metric] = (mean, std)
 
-        for row in rows[split_idx:]:
+        for row in scan_rows:
+            row_hits = []
             for metric in ANOMALY_KEYS:
                 mean, std = baseline_stats[metric]
                 z = (row[metric] - mean) / std
-                if abs(z) >= z_threshold:
-                    anomalies.append(
+                if z > z_threshold:
+                    row_hits.append(
                         {
                             "timestamp": row["timestamp"],
                             "service": service,
                             "metric": metric,
                             "value": row[metric],
+                            "zscore": round(z, 3),
                             "baseline_mean": round(mean, 6),
                             "baseline_std": round(std, 6),
-                            "z_score": round(z, 3),
                         }
                     )
 
-    anomalies.sort(key=lambda a: (a["timestamp"], -abs(a["z_score"])))
+            if row_hits:
+                row_hits.sort(key=lambda x: x["zscore"], reverse=True)
+                anomalies.append(row_hits[0])
+                break
+
+    anomalies.sort(key=lambda a: (a["timestamp"], ANOMALY_SERVICE_ORDER.get(a["service"], 99)))
     return anomalies
 
 
