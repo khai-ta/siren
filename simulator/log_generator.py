@@ -1,3 +1,3 @@
-"""Log generation for simulator slice 2."""
+"""Log generation for simulator"""
 
 # TODO: implement log generator using incidents and metrics

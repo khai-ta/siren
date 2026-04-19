@@ -1,4 +1,4 @@
-"""Siren simulator package."""
+"""Siren simulator package"""
 
 from .topology import (
     ANOMALY_KEYS,

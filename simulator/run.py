@@ -1,4 +1,4 @@
-"""CLI entrypoint for the simulator."""
+"""CLI entrypoint for the simulator"""
 
 import argparse
 

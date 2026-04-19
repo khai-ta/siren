@@ -1,3 +1,3 @@
-"""Trace generation for simulator slice 2."""
+"""Trace generation for simulator"""
 
 # TODO: implement trace generator

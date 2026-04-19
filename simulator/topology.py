@@ -1,4 +1,4 @@
-"""Static service topology and shared simulator constants."""
+"""Static service topology and shared simulator constants"""
 
 SERVICES = {
     "api-gateway": {"rps": 500, "error_rate": 0.001, "latency_p50": 12, "latency_p99": 45, "cpu": 30, "memory": 40},
@@ -85,7 +85,7 @@ CRITICAL_EDGES = {
 
 
 def get_downstream_services(service: str, visited: set = None) -> list:
-    """Return all services transitively downstream of the given service."""
+    """Return all services transitively downstream of the given service"""
     if visited is None:
         visited = set()
 
