@@ -46,6 +46,9 @@ LOG_TEMPLATES = {
         "Dead letter queue depth: {depth} - consumer falling behind",
     ],
     "recommendation-service": [
+        "Memory usage at {memory_pct}% - GC pressure increasing",
+        "Feature store query latency degraded: {duration}ms (expected <100ms)",
+        "OOM risk: heap at {memory_pct}% - request queue starting to back up",
         "Cache miss rate elevated: {miss_pct}% - falling back to database",
         "Feature vector fetch timeout after {duration}ms",
     ],
@@ -55,7 +58,10 @@ LOG_TEMPLATES = {
         "Request queue depth: {depth} - shedding load",
     ],
     "cache": [
-        "Cache hit rate nominal: {hit_pct}%",
+        "Cache eviction rate elevated: {eviction_rate}/sec - memory pressure detected",
+        "Cache miss storm: {miss_pct}% miss rate - falling back to database for all reads",
+        "Cache memory usage at {memory_pct}% - evicting LRU keys aggressively",
+        "Cache hit rate degraded to {hit_pct}% - upstream services experiencing elevated DB load",
     ],
     "message-queue": [
         "Queue depth nominal: {depth} messages",
