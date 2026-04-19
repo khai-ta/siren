@@ -484,25 +484,37 @@ def print_run_summary(metrics: List[Dict], anomalies: List[Dict], window_logs: L
 
 
 def main() -> None:
-    incident_start_minute = 30
-    metrics = generate_metrics(incident_start_minute=incident_start_minute)
+    print("🚨 SIREN — Autonomous Incident Investigator")
+    print("=" * 50)
+
+    print("\n[1/5] Generating AcmeCloud metrics (60 min simulation)...")
+    metrics = generate_metrics()
+    print(f"      Generated {len(metrics)} metric rows across 7 services")
+
+    print("\n[2/5] Generating logs...")
+    logs = generate_logs(metrics, incident_start_minute=30)
+    print(f"      Generated {len(logs)} log entries")
+
+    print("\n[3/5] Running anomaly detection...")
     anomalies = detect_anomalies(metrics)
+    print(f"      Detected {len(anomalies)} anomalies across services:")
+    for a in anomalies:
+        print(f"      → {a['service']}: {a['metric']} z-score={a['zscore']:.1f}")
 
-    if not anomalies:
-        print("No anomaly detected")
-        return
+    print("\n[4/5] Building investigation context...")
+    context = build_investigation_context(anomalies, logs, metrics)
 
-    logs = generate_logs(metrics, incident_start_minute)
-    incident_ts = anomalies[0]["timestamp"]
-    log_window = get_windowed_logs(logs, incident_ts, minutes=5)
-    investigation_context = build_investigation_context(anomalies, logs, metrics)
-
-    rca = investigate(investigation_context)
-
-    print_run_summary(metrics, anomalies, log_window)
-    print("RCA Report")
-    print("-" * 80)
+    print("\n[5/5] Calling Siren AI investigator...")
+    print("-" * 50)
+    rca = investigate(context)
     print(rca)
+    print("-" * 50)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    os.makedirs("data/reports", exist_ok=True)
+    with open(f"data/reports/rca_{timestamp}.md", "w", encoding="utf-8") as f:
+        f.write(rca)
+    print(f"\n✓ Report saved to data/reports/rca_{timestamp}.md")
 
 
 if __name__ == "__main__":
