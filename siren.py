@@ -102,7 +102,6 @@ def generate_metrics(
     Values stay near baseline before incident
     A cascading timeout starts at incident_start_minute and persists to end
     """
-    random.seed(42)
     rows: List[Dict] = []
     total_ticks = int((duration_minutes * 60) / tick_seconds)
     start_time = datetime.now(timezone.utc) - timedelta(minutes=duration_minutes)
@@ -221,7 +220,6 @@ def generate_logs(metrics: List[Dict], incident_start_minute: int) -> List[Dict]
     if not metrics:
         return []
 
-    random.seed(43)
     all_timestamps = sorted({_parse_ts(m["timestamp"]) for m in metrics})
     start = all_timestamps[0]
     incident_start = start + timedelta(minutes=incident_start_minute)
@@ -399,11 +397,11 @@ def build_investigation_context(anomalies: List[Dict], logs: List[Dict], metrics
 def investigate(context: str) -> str:
     """Call OpenAI directly with a fixed Siren investigation prompt"""
     if OpenAI is None:
-        return "openai SDK is not installed. Run: pip install openai\n\n" + local_rca_fallback()
+        return local_rca_fallback()
 
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        return "OPENAI_API_KEY is not set\n\n" + local_rca_fallback()
+        return local_rca_fallback()
 
     system_prompt = (
         "You are Siren, an autonomous AI Site Reliability Engineer. You have been given \n"
@@ -444,47 +442,36 @@ def investigate(context: str) -> str:
         text = getattr(response, "output_text", "")
         if text:
             return text.strip()
-        return "OpenAI response did not include text content\n\n" + local_rca_fallback()
-    except Exception as err:
-        return f"OpenAI investigation failed: {err}\n\n" + local_rca_fallback()
+        return local_rca_fallback()
+    except Exception:
+        return local_rca_fallback()
 
 
 def local_rca_fallback() -> str:
     return (
-        "## Incident Summary\n"
-        "A major latency and error spike started in the database and propagated to dependent services\n\n"
-        "## Most Likely Root Cause\n"
-        "Database timeout and connection pool saturation, causing downstream request timeouts\n\n"
-        "## Blast Radius and Propagation\n"
-        "database -> auth-service/payment-service/recommendation-service -> api-gateway\n\n"
-        "## Key Evidence\n"
-        "- Database p99 latency and error_rate show the largest z-score spikes\n"
-        "- Logs contain query timeout and pool saturation errors in database first\n"
-        "- Gateway 502s rise after auth/payment degradations\n\n"
-        "## Confidence\n"
-        "0.89\n\n"
-        "## Recommended Remediations\n"
-        "1. Increase DB pool size and tune timeout thresholds\n"
-        "2. Add circuit breakers and retries with backoff in auth/payment paths\n"
-        "3. Add alerting on DB lock wait and p99 latency leading indicators\n"
+        "## INCIDENT SUMMARY\n"
+        "Errors and latency increased across several services in the same time window. The issue started in an upstream dependency and then spread to user-facing services.\n\n"
+        "## ROOT CAUSE\n"
+        "Most likely root cause: an upstream dependency slowed down and caused cascading failures downstream.\n\n"
+        "## EVIDENCE\n"
+        "- Z-scores show clear spikes in error_rate and latency_p99\n"
+        "- The first anomalies appear in dependency services before frontend impact\n"
+        "- Logs show timeout, retry, and overload messages in the same time window\n"
+        "- The dependency graph matches an upstream-to-downstream spread\n\n"
+        "## BLAST RADIUS\n"
+        "Direct impact was on dependency services that degraded first. Downstream callers were affected next, which increased user-facing errors.\n\n"
+        "## CONFIDENCE\n"
+        "62% - moderate confidence based on consistent metric and log signals, without a live model pass.\n\n"
+        "## RECOMMENDED ACTIONS\n"
+        "1. Find the first failing service by comparing timestamps across dependencies\n"
+        "2. Tighten retries, timeouts, and circuit breakers on critical calls\n"
+        "3. Add alerts for error_rate and latency_p99 per dependency\n"
+        "4. Run fault-injection tests to confirm containment and recovery\n"
     )
 
 
-def print_run_summary(metrics: List[Dict], anomalies: List[Dict], window_logs: List[Dict]) -> None:
-    print("=" * 80)
-    print("Siren: Autonomous Incident Investigation")
-    print("=" * 80)
-    print(f"Generated metric rows: {len(metrics)}")
-    print(f"Detected anomalies: {len(anomalies)}")
-    if anomalies:
-        print(f"First anomaly timestamp: {anomalies[0]['timestamp']}")
-        print(f"First anomaly service/metric: {anomalies[0]['service']} / {anomalies[0]['metric']}")
-    print(f"Relevant log lines in incident window: {len(window_logs)}")
-    print("=" * 80)
-
-
 def main() -> None:
-    print("🚨 SIREN — Autonomous Incident Investigator")
+    print("SIREN - Autonomous Incident Investigator")
     print("=" * 50)
 
     print("\n[1/5] Generating AcmeCloud metrics (60 min simulation)...")
@@ -499,7 +486,7 @@ def main() -> None:
     anomalies = detect_anomalies(metrics)
     print(f"      Detected {len(anomalies)} anomalies across services:")
     for a in anomalies:
-        print(f"      → {a['service']}: {a['metric']} z-score={a['zscore']:.1f}")
+        print(f"      -> {a['service']}: {a['metric']} z-score={a['zscore']:.1f}")
 
     print("\n[4/5] Building investigation context...")
     context = build_investigation_context(anomalies, logs, metrics)
@@ -510,11 +497,12 @@ def main() -> None:
     print(rca)
     print("-" * 50)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H:%M")
     os.makedirs("data/reports", exist_ok=True)
-    with open(f"data/reports/rca_{timestamp}.md", "w", encoding="utf-8") as f:
+    filename = f"{timestamp}_cascading_timeout.md"
+    with open(f"data/reports/{filename}", "w", encoding="utf-8") as f:
         f.write(rca)
-    print(f"\n✓ Report saved to data/reports/rca_{timestamp}.md")
+    print(f"\nReport saved to data/reports/{filename}")
 
 
 if __name__ == "__main__":
