@@ -32,7 +32,8 @@ _reasoning_llm = ChatAnthropic(
     temperature=0,
     extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
 )
-_reasoning_llm_with_tools = _reasoning_llm.bind_tools(INVESTIGATION_TOOLS)
+# Tools only needed for investigate_step; plan/verify/report don't use tools
+_investigator_llm_with_tools = _reasoning_llm.bind_tools(INVESTIGATION_TOOLS)
 
 
 @traceable(name="plan_investigation")
@@ -108,7 +109,7 @@ def investigate_step(state: InvestigationState) -> dict[str, Any]:
 
     compressed_state = build_investigator_prompt(state)
 
-    response = _reasoning_llm_with_tools.invoke(
+    response = _investigator_llm_with_tools.invoke(
         [
             SystemMessage(
                 content=INVESTIGATOR_SYSTEM_PROMPT,
