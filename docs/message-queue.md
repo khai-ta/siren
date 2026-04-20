@@ -1,0 +1,3 @@
+# message-queue
+
+Scaffold placeholder

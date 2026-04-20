@@ -1,0 +1,3 @@
+# auth-service
+
+Scaffold placeholder
