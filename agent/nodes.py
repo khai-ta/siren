@@ -404,15 +404,23 @@ def _build_state_summary(state: InvestigationState) -> str:
         for tc in state["tool_history"]
     )
 
-    return (
-        f"incident_id: {state['incident_id']}\n"
-        f"origin_service: {state['origin_service']}\n"
-        f"window: {state['window_start']} to {state['window_end']}\n"
-        f"current_step: {state['current_step']} / {state['max_steps']}\n"
-        f"should_conclude: {state['should_conclude']}\n\n"
-        f"Anomalies:\n{anomalies_summary or '(none)'}\n\n"
-        f"Plan:\n" + "\n".join(f"- {step}" for step in state["investigation_plan"]) + "\n\n"
-        f"Hypotheses:\n{hypotheses_summary or '(none)'}\n\n"
-        f"Tool history:\n{history_summary or '(none)'}\n\n"
-        f"Evidence:\n{build_evidence_digest(state['evidence_ledger'])}"
-    )
+    sections = [
+        f"incident_id: {state['incident_id']}",
+        f"origin_service: {state['origin_service']}",
+        f"window: {state['window_start']} to {state['window_end']}",
+        f"current_step: {state['current_step']} / {state['max_steps']}",
+        f"should_conclude: {state['should_conclude']}",
+        f"\nAnomalies:\n{anomalies_summary or '(none)'}",
+    ]
+
+    # Include plan only in early steps (static after planner)
+    if state["current_step"] <= 3:
+        sections.append("Plan:\n" + "\n".join(f"- {step}" for step in state["investigation_plan"]))
+
+    sections.extend([
+        f"Hypotheses:\n{hypotheses_summary or '(none)'}",
+        f"Tool history:\n{history_summary or '(none)'}",
+        f"Evidence:\n{build_evidence_digest(state['evidence_ledger'])}",
+    ])
+
+    return "\n\n".join(sections)

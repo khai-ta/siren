@@ -27,11 +27,12 @@ def build_investigator_prompt(state: InvestigationState) -> str:
         anomaly_lines.append(f"  (+{len(state['anomalies']) - 5} more anomalies)")
     sections.append("Anomalies:\n" + "\n".join(anomaly_lines))
 
-    # Hypothesis status (compressed)
-    if state["hypotheses"]:
+    # Hypothesis status (only open/confirmed; rejected stay in evidence ledger)
+    active_hypotheses = [h for h in state["hypotheses"] if h["status"] != "rejected"]
+    if active_hypotheses:
         hypothesis_lines = []
-        for h in state["hypotheses"]:
-            status_icon = {"open": "?", "confirmed": "✓", "rejected": "✗"}.get(h["status"], "?")
+        for h in active_hypotheses:
+            status_icon = {"open": "?", "confirmed": "✓"}.get(h["status"], "?")
             hypothesis_lines.append(
                 f"{status_icon} {h['statement']} "
                 f"(conf {h['confidence']:.0%}, {len(h['evidence_for'])}for/{len(h['evidence_against'])}against)"
