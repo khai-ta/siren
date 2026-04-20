@@ -10,6 +10,7 @@ from .topology import (
     METRIC_KEYS,
     SERVICES,
     get_downstream_services,
+    hops_from_origin,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "ANOMALY_SERVICE_ORDER",
     "CRITICAL_EDGES",
     "get_downstream_services",
+    "hops_from_origin",
 ]

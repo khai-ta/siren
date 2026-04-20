@@ -111,9 +111,15 @@ def _sample_status(multiplier: float, in_incident_window: bool, touches_affected
             return "timeout"
         return "ok"
 
-    severity = max(0.0, multiplier - 1.0)
-    timeout_prob = min(0.45, 0.015 + 0.09 * severity)
-    error_prob = min(0.55, 0.03 + 0.12 * severity)
+    # Scale baseline error/timeout probabilities directly by multiplier
+    # Baseline: 0.0007 error + 0.0011 timeout = 0.0018 (0.18%)
+    # 4x multiplier -> 0.0072 (0.72%), capped at 0.05 (5%)
+    baseline_error_prob = 0.0007
+    baseline_timeout_prob = 0.0011
+    
+    error_prob = min(0.05, baseline_error_prob * multiplier)
+    timeout_prob = min(0.05, baseline_timeout_prob * multiplier)
+    
     p = random.random()
     if p < timeout_prob:
         return "timeout"
@@ -274,14 +280,7 @@ def generate_traces(
                 if idx == 0 and in_incident_window and gateway_multiplier > 1.2:
                     touches_affected = True
 
-                status = _sample_incident_status(
-                    incident.name,
-                    service,
-                    multiplier,
-                    in_incident_window,
-                    touches_affected,
-                )
-
+                status = _sample_status(multiplier, in_incident_window, touches_affected)
                 baseline_latency = float(SERVICES[service]["latency_p50"])
                 jitter = random.uniform(0.9, 1.12)
                 duration_ms = baseline_latency * multiplier * jitter

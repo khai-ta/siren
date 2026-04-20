@@ -20,6 +20,33 @@ DEPENDENCIES = {
     "message-queue": [],
 }
 
+
+def hops_from_origin(service: str, origin: str) -> int:
+    """Compute graph distance from origin service to given service using BFS.
+    
+    Used to calculate propagation delays for incident effects through service dependencies.
+    """
+    if service == origin:
+        return 0
+    
+    visited = {origin}
+    queue = [(origin, 0)]
+    
+    while queue:
+        current, dist = queue.pop(0)
+        neighbors = list(DEPENDENCIES.get(current, []))
+        neighbors += [caller for caller, deps in DEPENDENCIES.items() if current in deps]
+        
+        for neighbor in neighbors:
+            if neighbor == service:
+                return dist + 1
+            if neighbor not in visited:
+                visited.add(neighbor)
+                queue.append((neighbor, dist + 1))
+    
+    return 999
+
+
 INCIDENT_MULTIPLIERS = {
     "database": {"latency_p99": 8.0, "error_rate": 10.0},
     "auth-service": {"latency_p99": 4.0, "error_rate": 6.0},
