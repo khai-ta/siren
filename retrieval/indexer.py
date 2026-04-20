@@ -140,8 +140,10 @@ class RetrievalIndexer:
         graph_store: Any,
         metric_store: Any,
         docs_store: Any | None = None,
+        traces_store: Any | None = None,
     ) -> None:
         self.logs_store = vector_store
+        self.traces_store = traces_store or vector_store
         self.docs_store = docs_store or vector_store
         self.graph = graph_store
         self.metrics = metric_store

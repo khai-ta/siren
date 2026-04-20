@@ -22,8 +22,8 @@ def _invoke_with_checkpointer(initial_state: InvestigationState, config: dict) -
                 saver.setup()
                 graph = build_investigation_graph(saver)
                 return dict(graph.invoke(initial_state, config=config))
-        except Exception:
-            pass
+        except Exception as error:
+            print(f"Postgres checkpointer unavailable ({error}) — falling back to in-memory")
 
     graph = build_investigation_graph()
     return dict(graph.invoke(initial_state, config=config))

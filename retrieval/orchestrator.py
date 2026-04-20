@@ -17,6 +17,7 @@ Settings.embed_model = OpenAIEmbedding(model="text-embedding-3-small")
 class SirenQueryEngine:
     def __init__(self) -> None:
         self.logs_store = PineconeStore("siren-logs")
+        self.traces_store = PineconeStore("siren-traces")
         self.docs_store = PineconeStore("siren-docs")
         self.graph = Neo4jStore()
         self.metrics = TimescaleStore()
@@ -92,10 +93,27 @@ class SirenQueryEngine:
 
         affected = [origin_service] + blast_radius
         metrics_summary: Dict[str, Dict[str, Any]] = {}
+        from datetime import datetime, timedelta
+        def resolve_timestamp(ts):
+            if isinstance(ts, str):
+                if ts == "now":
+                    return datetime.utcnow().isoformat()
+                if ts.startswith("now-"):
+                    if ts.endswith("m"):
+                        mins = int(ts[4:-1])
+                        return (datetime.utcnow() - timedelta(minutes=mins)).isoformat()
+                    elif ts.endswith("h"):
+                        hours = int(ts[4:-1])
+                        return (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+            return ts
+
+        baseline_end = resolve_timestamp(window_start)
+        window_start_res = resolve_timestamp(window_start)
+        window_end_res = resolve_timestamp(window_end)
         for service in affected:
             metrics_summary[service] = {
-                "baseline": self.metrics.get_baseline(service, window_start),
-                "peak": self.metrics.get_peak(service, window_start, window_end),
+                "baseline": self.metrics.get_baseline(service, baseline_end),
+                "peak": self.metrics.get_peak(service, window_start_res, window_end_res),
             }
 
         result: Dict[str, Any] = {
