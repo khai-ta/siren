@@ -3,15 +3,22 @@
 from pathlib import Path
 from typing import Dict, Tuple
 
-from .metric_store import MetricStore
-from .vector_store import VectorStore
+from .neo4j_store import Neo4jStore
+from .pinecone_store import PineconeStore
+from .timescale_store import TimescaleStore
 
 
 class RetrievalIndexer:
     """Placeholder ingestion orchestrator for future retrieval indexing"""
 
-    def __init__(self, vector_store: VectorStore, metric_store: MetricStore) -> None:
+    def __init__(
+        self,
+        vector_store: PineconeStore,
+        graph_store: Neo4jStore,
+        metric_store: TimescaleStore,
+    ) -> None:
         self.vector_store = vector_store
+        self.graph_store = graph_store
         self.metric_store = metric_store
 
     @staticmethod
@@ -28,4 +35,5 @@ class RetrievalIndexer:
         return {
             "metrics_rows": 0,
             "log_rows": 0,
+            "trace_rows": 0,
         }

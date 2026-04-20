@@ -1,22 +1,22 @@
-"""Hybrid ranker scaffold"""
+"""Fusion scaffold for combining multi-source retrieval results"""
 
 from dataclasses import dataclass
 from typing import Dict, List
 
 
 @dataclass
-class RankedEvidence:
+class FusedEvidence:
     evidence_id: str
     text: str
     metadata: Dict
     source: str
-    base_score: float
-    fused_score: float = 0.0
+    score: float
 
 
 def reciprocal_rank_fusion(
-    ranked_lists: Dict[str, List[RankedEvidence]],
+    ranked_lists: Dict[str, List[FusedEvidence]],
     k: int = 60,
     limit: int = 12,
-) -> List[RankedEvidence]:
+) -> List[FusedEvidence]:
+    """Placeholder for reciprocal rank fusion"""
     return []

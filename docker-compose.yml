@@ -1,0 +1,26 @@
+services:
+  neo4j:
+    image: neo4j:5.20
+    ports:
+      - "7687:7687"
+      - "7474:7474"
+    environment:
+      - NEO4J_AUTH=neo4j/siren_dev_pw
+    volumes:
+      - ./data/neo4j:/data
+
+  timescale:
+    image: timescale/timescaledb:latest-pg16
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=siren
+      - POSTGRES_USER=siren
+      - POSTGRES_PASSWORD=siren_dev_pw
+    volumes:
+      - ./data/timescale:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"

@@ -1,34 +1,34 @@
 # Recommendation Service
 
 ## Overview
-Recommendation service enriches the user experience by computing personalized suggestions in AcmeCloud. It depends heavily on cache and database reads, so latency often moves with backend efficiency and cache health
+Recommendation Service computes personalized suggestions and ranking responses for user-facing surfaces. It runs with comparatively high baseline latency and memory footprint due to feature retrieval and scoring logic. Its health depends on efficient cache usage and stable fallback behavior to database.
 
 ## Dependencies
-- Upstream callers: api-gateway, homepage rendering, recommendation APIs
-- Downstream dependencies: cache, database
+- Upstream callers: api-gateway
+- Downstream: cache, database
 
 ## Key Metrics & Alert Thresholds
 - error_rate: normal < 0.5%, warn > 2%, critical > 5%
-- latency_p99: normal < 320ms, warn > 500ms, critical > 750ms
+- latency_p99: normal < 320ms, warn > 400ms, critical > 600ms
 - cpu_pct: normal < 60%, warn > 75%, critical > 90%
 - memory_pct: normal < 70%, warn > 85%, critical > 95%
 
 ## Common Failure Modes
 
-### Cache Eviction Storm
-**Symptoms:** Cache hit rate falls, recommendation p99 grows quickly, and logs mention falling back to database. Error rate may rise only after the fallback path becomes saturated
-**Likely cause:** The cache is evicting hot keys or is too small for the current working set
-**Remediation:** Increase cache capacity if possible, reduce churn, and warm the hottest keys before restoring normal traffic
+### memory_leak
+**Symptoms:** memory_pct trends upward for an extended window, then latency_p99 and error_rate accelerate once pods approach high memory pressure. Pod-level imbalance is common with one instance degrading first.
+**Likely cause:** retained feature vectors, unbounded caches, or long-lived object growth in ranking workers.
+**Remediation:** recycle affected pods, cap in-process cache growth, and inspect recent release diffs for retention regressions.
 
-### Memory Leak
-**Symptoms:** Memory rises gradually, latency gets worse before errors appear, and a single pod can look much worse than the rest. Logs may show timeout bursts or queueing delays in the hottest instance
-**Likely cause:** Leaked feature objects, caches, or request state in a long-lived worker
-**Remediation:** Restart the affected pod, isolate it from traffic, and inspect recent releases for retained in-memory data
+### cache_eviction_storm
+**Symptoms:** cache hit rate drops while recommendation latency rises and fallback queries to database increase. Error_rate often rises later, after fallback load saturates downstream dependencies.
+**Likely cause:** eviction churn on hot keys or insufficient cache capacity for active working set.
+**Remediation:** increase effective cache headroom, prioritize hot-key warming, and throttle non-essential recommendation refresh paths.
 
-### Cascading Timeout
-**Symptoms:** p99 inflates sharply when database latency climbs, and the gateway starts seeing slow recommendation responses. The service may still return responses, but they arrive too late to be useful
-**Likely cause:** Downstream database saturation or retry amplification
-**Remediation:** Reduce concurrency, lower retries, and verify whether database or cache is the primary bottleneck
+### cascading_timeout
+**Symptoms:** timeout logs and slow downstream read traces appear during upstream incidents, with gateway-facing latency becoming consistently elevated. Recommendation calls complete too late for responsive UX.
+**Likely cause:** database or cache dependency slowdown propagates through synchronous request path.
+**Remediation:** reduce fan-out depth, tighten timeout hierarchy, and restore primary downstream bottleneck before raising traffic limits.
 
 ## On-call Escalation
-If automated remediation fails, escalate to the personalization platform team.
+If automated remediation fails, escalate to the personalization team.
