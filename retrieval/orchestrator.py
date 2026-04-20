@@ -32,17 +32,39 @@ class SirenQueryEngine:
         window_end: str,
     ) -> Dict[str, Any]:
         cached = self.cache.get("retrieve", query, origin_service, window_start, window_end)
-        if cached:
+        if cached is not None:
             return cached
 
         log_candidates = self.logs_store.search(
             query=query,
             top_k=50,
-            filter={"timestamp": {"$gte": window_start, "$lte": window_end}},
+            filter={
+                "source": {"$eq": "log"},
+                "timestamp": {"$gte": window_start, "$lte": window_end},
+            },
         )
+        if not log_candidates:
+            log_candidates = self.logs_store.search(
+                query=query,
+                top_k=50,
+                filter={"timestamp": {"$gte": window_start, "$lte": window_end}},
+            )
+
+        trace_candidates = self.logs_store.search(
+            query=query,
+            top_k=30,
+            filter={
+                "source": {"$eq": "trace"},
+                "start_time": {"$gte": window_start, "$lte": window_end},
+            },
+        )
+        if not trace_candidates:
+            trace_candidates = self.logs_store.search(query=query, top_k=30, filter={"source": {"$eq": "trace"}})
+
         doc_candidates = self.docs_store.search(query=query, top_k=20)
 
         top_logs = self.reranker.rerank(query, log_candidates, top_n=15)
+        top_traces = self.reranker.rerank(query, trace_candidates, top_n=10)
         top_docs = self.reranker.rerank(query, doc_candidates, top_n=5)
 
         blast_radius = self.graph.get_blast_radius(origin_service)
@@ -63,6 +85,7 @@ class SirenQueryEngine:
             "blast_radius": blast_radius,
             "cascade_paths": cascade_paths,
             "top_logs": top_logs,
+            "top_traces": top_traces,
             "top_docs": top_docs,
             "metrics_summary": metrics_summary,
         }
