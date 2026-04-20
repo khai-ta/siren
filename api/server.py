@@ -35,6 +35,7 @@ class InvestigateRequest(BaseModel):
 	metrics_csv: str = Field(..., description="Path to metrics CSV")
 	top_k: int = Field(default=12, ge=1, le=50)
 	reindex: bool = Field(default=True)
+	use_agent: bool = Field(default=False)
 
 
 class EvaluateRequest(BaseModel):
@@ -93,7 +94,12 @@ def investigate(payload: InvestigateRequest) -> dict[str, Any]:
 		raise HTTPException(status_code=404, detail=f"metrics file not found: {payload.metrics_csv}")
 
 	try:
-		result = run_investigation(metrics_path, top_k=payload.top_k, reindex=payload.reindex)
+		result = run_investigation(
+			metrics_path,
+			top_k=payload.top_k,
+			reindex=payload.reindex,
+			use_agent=payload.use_agent,
+		)
 	except Exception as exc:
 		raise HTTPException(status_code=500, detail=f"investigation failed: {exc}") from exc
 
@@ -107,6 +113,8 @@ def investigate(payload: InvestigateRequest) -> dict[str, Any]:
 		"uncached_latency_ms": result["uncached_latency_ms"],
 		"cached_latency_ms": result["cached_latency_ms"],
 		"retrieved": result["retrieved"],
+		"reasoning_trace": result.get("reasoning_trace", []),
+		"hypothesis_ledger": result.get("hypothesis_ledger", []),
 	}
 
 
