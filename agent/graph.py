@@ -8,9 +8,14 @@ from typing import Any, Iterator
 
 from langgraph.graph import END, StateGraph
 
-from agent.nodes import investigate_node, plan_node, report_node, verify_node
+from agent.nodes import (
+    investigate_step,
+    plan_investigation,
+    should_continue,
+    verify_hypothesis,
+    write_report,
+)
 from agent.state import InvestigationState
-from agent.tools import InvestigationTools
 
 
 @contextmanager
@@ -32,33 +37,27 @@ def _checkpointer_context() -> Iterator[Any]:
     yield MemorySaver()
 
 
-def build_agent_graph(tools: InvestigationTools):
+def build_investigation_graph():
     graph = StateGraph(InvestigationState)
 
-    graph.add_node("plan", plan_node)
-    graph.add_node("investigate", lambda state: investigate_node(state, tools))
-    graph.add_node("verify", verify_node)
-    graph.add_node("report", report_node)
+    graph.add_node("plan", plan_investigation)
+    graph.add_node("investigate", investigate_step)
+    graph.add_node("verify", verify_hypothesis)
+    graph.add_node("report", write_report)
 
     graph.set_entry_point("plan")
     graph.add_edge("plan", "investigate")
-    graph.add_edge("investigate", "verify")
     graph.add_conditional_edges(
-        "verify",
-        lambda state: "report" if state.get("done", False) else "investigate",
-        {"report": "report", "investigate": "investigate"},
+        "investigate",
+        should_continue,
+        {"investigate": "investigate", "verify": "verify"},
     )
+    graph.add_edge("verify", "report")
     graph.add_edge("report", END)
 
-    return graph
+    with _checkpointer_context() as checkpointer:
+        return graph.compile(checkpointer=checkpointer)
 
 
-def compile_agent_graph(tools: InvestigationTools):
-    graph = build_agent_graph(tools)
-    checkpointer_ctx = _checkpointer_context()
-    checkpointer = checkpointer_ctx.__enter__()
-    compiled = graph.compile(checkpointer=checkpointer)
-
-    # Attach context manager for explicit cleanup by caller
-    setattr(compiled, "_siren_checkpointer_ctx", checkpointer_ctx)
-    return compiled
+# Backward-compatible alias
+build_agent_graph = build_investigation_graph
