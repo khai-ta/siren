@@ -99,7 +99,6 @@ class SirenQueryEngine:
                 if ts == "now":
                     return datetime.utcnow().isoformat()
                 if ts.startswith("now-"):
-                    # Only supports minutes (e.g., now-30m)
                     if ts.endswith("m"):
                         mins = int(ts[4:-1])
                         return (datetime.utcnow() - timedelta(minutes=mins)).isoformat()

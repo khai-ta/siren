@@ -98,10 +98,8 @@ class TimescaleStore:
             return cur.fetchall()
 
     def get_baseline(self, service: str, baseline_end: str) -> Dict:
-        # Validate that baseline_end is an ISO timestamp, not a relative string like 'now-1h'
         from datetime import datetime
         try:
-            # Accepts both 'YYYY-MM-DDTHH:MM:SS' and 'YYYY-MM-DD HH:MM:SS' formats
             datetime.fromisoformat(baseline_end.replace('T', ' '))
         except Exception:
             raise ValueError(f"baseline_end must be an ISO timestamp, got: {baseline_end}")
