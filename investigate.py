@@ -128,6 +128,7 @@ def run_investigation(
     report_path.write_text(report, encoding="utf-8")
 
     return {
+        "incident_id": incident_id,
         "incident_name": incident_name,
         "origin_service": origin_service,
         "anomaly_metric": str(anomalies[0]["metric"]),
@@ -136,7 +137,9 @@ def run_investigation(
         "report_path": report_path,
         "final_root_cause": agent_state.get("final_root_cause"),
         "final_confidence": agent_state.get("final_confidence"),
+        "final_report": agent_state.get("final_report"),
         "current_step": agent_state.get("current_step"),
+        "evidence_ledger": agent_state.get("evidence_ledger", {}),
     }
 
 

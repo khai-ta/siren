@@ -37,3 +37,18 @@ def score_investigation(
         metrics=METRICS,
     )
     return result.to_pandas().to_dict(orient="records")[0]
+
+
+def score_agent_investigation(final_state: dict, ground_truth_root_cause: str) -> dict:
+    """Score an agent investigation output against known ground truth"""
+    retrieved_contexts = [
+        f"{ev['tool']}: {str(ev['data'])[:500]}"
+        for ev in final_state["evidence_ledger"].values()
+    ]
+
+    return score_investigation(
+        query=f"What is the root cause of incident {final_state['incident_id']}?",
+        retrieved_contexts=retrieved_contexts,
+        generated_answer=final_state["final_root_cause"],
+        ground_truth=ground_truth_root_cause,
+    )
