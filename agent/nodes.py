@@ -27,7 +27,11 @@ from processing.evidence_digest import build_evidence_digest
 
 
 _fast_llm = ChatAnthropic(model="claude-haiku-4-5", temperature=0)
-_reasoning_llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0)
+_reasoning_llm = ChatAnthropic(
+    model="claude-sonnet-4-6",
+    temperature=0,
+    extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
+)
 _reasoning_llm_with_tools = _reasoning_llm.bind_tools(INVESTIGATION_TOOLS)
 
 
@@ -41,7 +45,10 @@ def plan_investigation(state: InvestigationState) -> dict[str, Any]:
 
     response = _reasoning_llm.invoke(
         [
-            SystemMessage(content=PLANNER_SYSTEM_PROMPT),
+            SystemMessage(
+                content=PLANNER_SYSTEM_PROMPT,
+                additional_kwargs={"cache_control": {"type": "ephemeral"}},
+            ),
             HumanMessage(
                 content=(
                     "Anomalies detected:\n"
@@ -103,7 +110,10 @@ def investigate_step(state: InvestigationState) -> dict[str, Any]:
 
     response = _reasoning_llm_with_tools.invoke(
         [
-            SystemMessage(content=INVESTIGATOR_SYSTEM_PROMPT),
+            SystemMessage(
+                content=INVESTIGATOR_SYSTEM_PROMPT,
+                additional_kwargs={"cache_control": {"type": "ephemeral"}},
+            ),
             HumanMessage(
                 content=f"{compressed_state}\n\nWhat tool should you call next? Return one tool call or set should_conclude."
             ),
@@ -165,7 +175,10 @@ def verify_hypothesis(state: InvestigationState) -> dict[str, Any]:
 
     response = _reasoning_llm.invoke(
         [
-            SystemMessage(content=VERIFIER_SYSTEM_PROMPT),
+            SystemMessage(
+                content=VERIFIER_SYSTEM_PROMPT,
+                additional_kwargs={"cache_control": {"type": "ephemeral"}},
+            ),
             HumanMessage(content=f"Investigation state:\n{state_summary}\n\nVerify the root cause"),
         ]
     )
@@ -188,7 +201,10 @@ def write_report(state: InvestigationState) -> dict[str, Any]:
 
     response = _reasoning_llm.invoke(
         [
-            SystemMessage(content=REPORTER_SYSTEM_PROMPT),
+            SystemMessage(
+                content=REPORTER_SYSTEM_PROMPT,
+                additional_kwargs={"cache_control": {"type": "ephemeral"}},
+            ),
             HumanMessage(content=f"Investigation complete\n\n{state_summary}\n\nWrite the final RCA report"),
         ]
     )
