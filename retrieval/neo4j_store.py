@@ -17,7 +17,7 @@ class Neo4jStore:
         self.driver = GraphDatabase.driver(
             os.getenv("NEO4J_URI"),
             auth=(
-                os.getenv("NEO4J_USER") or os.getenv("NEO4J_USERNAME"),
+                os.getenv("NEO4J_USER"),
                 os.getenv("NEO4J_PASSWORD"),
             ),
         )
@@ -49,7 +49,7 @@ class Neo4jStore:
                     )
 
     def get_blast_radius(self, service: str) -> List[str]:
-        """All services transitively upstream that depend on the target service"""
+        """All services that transitively depend on the target service"""
         with self.driver.session() as session:
             result = session.run(
                 """

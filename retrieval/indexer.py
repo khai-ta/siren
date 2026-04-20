@@ -3,30 +3,22 @@
 import csv
 import re
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Tuple
 
 
-def index_incident(
-    metrics_csv: str,
-    logs_csv: str,
-    docs_dir: str,
-    orchestrator: Any,
-    traces_csv: str | None = None,
-) -> Dict[str, int]:
-    counts: Dict[str, int] = {}
+def _load_logs(logs_csv: str) -> Tuple[List[str], List[Dict[str, Any]], List[str]]:
+    logs: List[str] = []
+    metas: List[Dict[str, Any]] = []
+    ids: List[str] = []
 
-    counts["metrics"] = orchestrator.metrics.ingest_csv(metrics_csv)
-
-    logs: list[str] = []
-    metas: list[Dict[str, Any]] = []
-    ids: list[str] = []
     with open(logs_csv, encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
         for index, row in enumerate(reader):
-            logs.append(row["message"])
+            message = row["message"]
+            logs.append(message)
             metas.append(
                 {
-                    "text": row["message"],
+                    "text": message,
                     "source": "log",
                     "service": row["service"],
                     "level": row["level"],
@@ -35,53 +27,56 @@ def index_incident(
                 }
             )
             ids.append(f"log_{index}")
-    orchestrator.logs_store.upsert(logs, metas, ids)
-    counts["logs"] = len(logs)
 
-    trace_count = 0
-    if traces_csv:
-        trace_texts: list[str] = []
-        trace_metas: list[Dict[str, Any]] = []
-        trace_ids: list[str] = []
-        with open(traces_csv, encoding="utf-8") as handle:
-            reader = csv.DictReader(handle)
-            for index, row in enumerate(reader):
-                trace_texts.append(
-                    " | ".join(
-                        [
-                            f"trace_id={row.get('trace_id', '')}",
-                            f"service={row.get('service', '')}",
-                            f"operation={row.get('operation', '')}",
-                            f"status={row.get('status', '')}",
-                            f"duration_ms={row.get('duration_ms', '')}",
-                            f"error_message={row.get('error_message', '')}",
-                        ]
-                    )
-                )
-                trace_metas.append(
-                    {
-                        "text": trace_texts[-1],
-                        "trace_id": row.get("trace_id", ""),
-                        "span_id": row.get("span_id", ""),
-                        "parent_span_id": row.get("parent_span_id", ""),
-                        "service": row.get("service", ""),
-                        "instance": row.get("instance", ""),
-                        "operation": row.get("operation", ""),
-                        "start_time": row.get("start_time", ""),
-                        "duration_ms": row.get("duration_ms", ""),
-                        "status": row.get("status", ""),
-                        "error_message": row.get("error_message", ""),
-                        "source": "trace",
-                    }
-                )
-                trace_ids.append(f"trace_{index}")
-        orchestrator.logs_store.upsert(trace_texts, trace_metas, trace_ids)
-        trace_count = len(trace_texts)
-    counts["trace_rows"] = trace_count
+    return logs, metas, ids
 
-    chunks: list[str] = []
-    chunk_metas: list[Dict[str, Any]] = []
-    chunk_ids: list[str] = []
+
+def _load_traces(traces_csv: str) -> Tuple[List[str], List[Dict[str, Any]], List[str]]:
+    trace_texts: List[str] = []
+    trace_metas: List[Dict[str, Any]] = []
+    trace_ids: List[str] = []
+
+    with open(traces_csv, encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        for index, row in enumerate(reader):
+            trace_text = " | ".join(
+                [
+                    f"trace_id={row.get('trace_id', '')}",
+                    f"service={row.get('service', '')}",
+                    f"operation={row.get('operation', '')}",
+                    f"status={row.get('status', '')}",
+                    f"duration_ms={row.get('duration_ms', '')}",
+                    f"error_message={row.get('error_message', '')}",
+                ]
+            )
+            trace_texts.append(trace_text)
+            trace_metas.append(
+                {
+                    "text": trace_text,
+                    "timestamp": row.get("start_time", ""),
+                    "trace_id": row.get("trace_id", ""),
+                    "span_id": row.get("span_id", ""),
+                    "parent_span_id": row.get("parent_span_id", ""),
+                    "service": row.get("service", ""),
+                    "instance": row.get("instance", ""),
+                    "operation": row.get("operation", ""),
+                    "start_time": row.get("start_time", ""),
+                    "duration_ms": row.get("duration_ms", ""),
+                    "status": row.get("status", ""),
+                    "error_message": row.get("error_message", ""),
+                    "source": "trace",
+                }
+            )
+            trace_ids.append(f"trace_{index}")
+
+    return trace_texts, trace_metas, trace_ids
+
+
+def _build_doc_chunks(docs_dir: str) -> Tuple[List[str], List[Dict[str, Any]], List[str]]:
+    chunks: List[str] = []
+    chunk_metas: List[Dict[str, Any]] = []
+    chunk_ids: List[str] = []
+
     for md_path in Path(docs_dir).glob("*.md"):
         service = md_path.stem
         content = md_path.read_text(encoding="utf-8")
@@ -100,6 +95,33 @@ def index_incident(
                 }
             )
             chunk_ids.append(f"{service}_section_{index}")
+
+    return chunks, chunk_metas, chunk_ids
+
+
+def index_incident(
+    metrics_csv: str,
+    logs_csv: str,
+    docs_dir: str,
+    orchestrator: Any,
+    traces_csv: str | None = None,
+) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+
+    counts["metrics"] = orchestrator.metrics.ingest_csv(metrics_csv)
+
+    logs, metas, ids = _load_logs(logs_csv)
+    orchestrator.logs_store.upsert(logs, metas, ids)
+    counts["logs"] = len(logs)
+
+    trace_count = 0
+    if traces_csv:
+        trace_texts, trace_metas, trace_ids = _load_traces(traces_csv)
+        orchestrator.logs_store.upsert(trace_texts, trace_metas, trace_ids)
+        trace_count = len(trace_texts)
+    counts["trace_rows"] = trace_count
+
+    chunks, chunk_metas, chunk_ids = _build_doc_chunks(docs_dir)
     orchestrator.docs_store.upsert(chunks, chunk_metas, chunk_ids)
     counts["docs"] = len(chunks)
 
@@ -112,15 +134,39 @@ def index_incident(
 class RetrievalIndexer:
     """Compatibility wrapper around the batch ingestion flow"""
 
-    def __init__(self, vector_store: Any, graph_store: Any, metric_store: Any) -> None:
-        self.vector_store = vector_store
-        self.graph_store = graph_store
-        self.metric_store = metric_store
+    def __init__(
+        self,
+        vector_store: Any,
+        graph_store: Any,
+        metric_store: Any,
+        docs_store: Any | None = None,
+    ) -> None:
+        self.logs_store = vector_store
+        self.docs_store = docs_store or vector_store
+        self.graph = graph_store
+        self.metrics = metric_store
+
+    @staticmethod
+    def _paths_for_bundle(metrics_csv: str) -> tuple[Path, Path, Path, Path]:
+        metrics_path = Path(metrics_csv).resolve()
+        logs_path = metrics_path.parent.parent / "logs" / metrics_path.name
+        traces_path = metrics_path.parent.parent / "traces" / metrics_path.name
+        docs_path = metrics_path.parent.parent.parent / "docs"
+        return metrics_path, logs_path, traces_path, docs_path
 
     def index_runbooks(self, docs_dir: str) -> int:
-        del docs_dir
-        return 0
+        chunks, chunk_metas, chunk_ids = _build_doc_chunks(docs_dir)
+
+        if chunks:
+            self.docs_store.upsert(chunks, chunk_metas, chunk_ids)
+        return len(chunks)
 
     def index_incident_bundle(self, metrics_csv: str) -> Dict[str, int]:
-        del metrics_csv
-        return {"metrics_rows": 0, "log_rows": 0, "trace_rows": 0}
+        metrics_path, logs_path, traces_path, docs_path = self._paths_for_bundle(metrics_csv)
+        return index_incident(
+            metrics_csv=str(metrics_path),
+            logs_csv=str(logs_path),
+            docs_dir=str(docs_path),
+            orchestrator=self,
+            traces_csv=str(traces_path) if traces_path.exists() else None,
+        )
