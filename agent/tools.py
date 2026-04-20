@@ -94,9 +94,28 @@ def get_metrics(
     Returns error_rate, latency_p99, rps, and memory for both pre-incident baseline
     means and in-window peak values. Use this to verify or reject hypotheses
     """
+    # Convert relative window_start if needed
+    from datetime import datetime, timedelta
+    def resolve_timestamp(ts):
+        if isinstance(ts, str):
+            if ts == "now":
+                return datetime.utcnow().isoformat()
+            if ts.startswith("now-"):
+                # Only supports minutes (e.g., now-30m)
+                if ts.endswith("m"):
+                    mins = int(ts[4:-1])
+                    return (datetime.utcnow() - timedelta(minutes=mins)).isoformat()
+                elif ts.endswith("h"):
+                    hours = int(ts[4:-1])
+                    return (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+        return ts
+
+    baseline_end = resolve_timestamp(window_start)
+    window_start_res = resolve_timestamp(window_start)
+    window_end_res = resolve_timestamp(window_end)
     return {
-        "baseline": _engine.metrics.get_baseline(service, window_start),
-        "peak": _engine.metrics.get_peak(service, window_start, window_end),
+        "baseline": _engine.metrics.get_baseline(service, baseline_end),
+        "peak": _engine.metrics.get_peak(service, window_start_res, window_end_res),
     }
 
 
