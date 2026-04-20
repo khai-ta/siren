@@ -117,7 +117,7 @@ def index_incident(
     trace_count = 0
     if traces_csv:
         trace_texts, trace_metas, trace_ids = _load_traces(traces_csv)
-        orchestrator.traces_store.upsert(trace_texts, trace_metas, trace_ids)
+        orchestrator.logs_store.upsert(trace_texts, trace_metas, trace_ids)
         trace_count = len(trace_texts)
     counts["trace_rows"] = trace_count
 
@@ -140,8 +140,10 @@ class RetrievalIndexer:
         graph_store: Any,
         metric_store: Any,
         docs_store: Any | None = None,
+        traces_store: Any | None = None,
     ) -> None:
         self.logs_store = vector_store
+        self.traces_store = traces_store or vector_store
         self.docs_store = docs_store or vector_store
         self.graph = graph_store
         self.metrics = metric_store

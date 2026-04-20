@@ -332,10 +332,12 @@ def _classify_evidence_relevance(
         delta = max(-0.3, min(0.3, delta))
 
         if not item:
-            text = _summarize_result(tool_result).lower()
-            if any(word in text for word in ["error", "timeout", "failed", "exception"]):
-                supports = True
-                delta = 0.05
+            # No classification from fast LLM — record evidence neutrally without
+            # boosting confidence; keyword-matching alone is unreliable because most
+            # tool results during incidents contain error keywords regardless of origin
+            supports = False
+            rejects = False
+            delta = 0.0
 
         if supports:
             current["evidence_for"] = [*current["evidence_for"], evidence_id]
@@ -344,7 +346,7 @@ def _classify_evidence_relevance(
 
         current["confidence"] = max(0.0, min(1.0, current["confidence"] + delta))
 
-        if current["confidence"] >= 0.8 and len(current["evidence_for"]) >= 1:
+        if current["confidence"] >= 0.8 and len(current["evidence_for"]) >= 2:
             current["status"] = "confirmed"
         elif len(current["evidence_against"]) >= 2 and current["confidence"] <= 0.35:
             current["status"] = "rejected"

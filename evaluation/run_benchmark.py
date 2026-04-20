@@ -25,6 +25,15 @@ from simulator.log_generator import generate_logs
 from simulator.metric_generator import generate_metrics
 from simulator.trace_generator import generate_traces
 
+ORIGIN_SERVICES = {
+    "cascading_timeout": "database",
+    "memory_leak": "recommendation-service",
+    "database_lock": "database",
+    "bad_deployment": "payment-service",
+    "network_spike": "api-gateway",
+    "cache_eviction_storm": "cache",
+}
+
 GROUND_TRUTH_ROOT_CAUSES = {
     "cascading_timeout": "The database is the root cause because a timeout cascade starts there and spreads through dependent services",
     "memory_leak": "The recommendation-service memory leak is the root cause because memory growth drives rising latency and errors",
@@ -98,6 +107,10 @@ def run_benchmark(seed: int = 7) -> list[dict[str, Any]]:
         score = score_agent_investigation(result, ground_truth)
         numeric_score = _numeric_items(score)
 
+        expected_origin = ORIGIN_SERVICES[incident_name]
+        reported = (result.get("final_root_cause") or "").lower()
+        correct = expected_origin.lower() in reported
+
         results.append(
             {
                 "incident": incident_name,
@@ -105,6 +118,7 @@ def run_benchmark(seed: int = 7) -> list[dict[str, Any]]:
                 "final_root_cause": result.get("final_root_cause"),
                 "final_confidence": result.get("final_confidence"),
                 "current_step": result.get("current_step"),
+                "correct": correct,
                 "score": numeric_score,
             }
         )
@@ -136,6 +150,8 @@ def main() -> None:
             f"  [confidence={conf_str}, steps={steps}]"
         )
     print("")
+    accuracy = sum(1 for r in results if r["correct"]) / len(results) if results else 0.0
+    print(f"Origin accuracy: {accuracy:.0%} ({sum(1 for r in results if r['correct'])}/{len(results)})")
     print(f"Average:         {_format_metric_block(averages)}")
     print(f"Overall average: {overall_average:.4f}")
 

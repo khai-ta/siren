@@ -35,7 +35,11 @@ def _cache(ttl: int = _CACHE_TTL):
             r = _redis()
             if r is None:
                 return fn(*args, **kwargs)
-            raw = json.dumps({"fn": fn.__name__, **kwargs}, sort_keys=True, default=str)
+            raw = json.dumps(
+                {"fn": fn.__name__, "args": list(args), "kwargs": kwargs},
+                sort_keys=True,
+                default=str,
+            )
             key = f"siren:tool:{hashlib.sha256(raw.encode()).hexdigest()[:20]}"
             try:
                 hit = r.get(key)
@@ -146,11 +150,12 @@ def get_trace_errors(
 
     Use this to inspect failed request paths and error messages
     """
-    candidates = _engine.traces_store.search(
+    candidates = _engine.logs_store.search(
         query=f"{service} error timeout",
         top_k=50,
         filter={
             "service": service,
+            "source": "trace",
             "status": {"$in": ["error", "timeout"]},
             "timestamp": {"$gte": window_start, "$lte": window_end},
         },
