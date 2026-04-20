@@ -1,16 +1,30 @@
-"""Redis cache scaffold for retrieval responses"""
+"""Redis cache for repeated retrievals"""
 
-from typing import Any, Optional
+import hashlib
+import json
+import os
+from typing import Any
+
+import redis
 
 
 class RetrievalCache:
-    """Placeholder cache wrapper"""
+    def __init__(self) -> None:
+        self.client = redis.from_url(os.getenv("REDIS_URL"))
+        self.ttl = 3600
 
-    def __init__(self, redis_url: str) -> None:
-        self.redis_url = redis_url
+    def _key(self, namespace: str, *args: Any) -> str:
+        raw = f"{namespace}:{json.dumps(args, sort_keys=True)}"
+        return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
-    def get(self, key: str) -> Optional[Any]:
-        return None
+    def get(self, namespace: str, *args: Any) -> Any:
+        key = self._key(namespace, *args)
+        raw = self.client.get(key)
+        return json.loads(raw) if raw else None
 
-    def set(self, key: str, value: Any, ttl_seconds: int = 300) -> None:
-        return None
+    def set(self, namespace: str, *args: Any, value: Any) -> None:
+        key = self._key(namespace, *args)
+        self.client.setex(key, self.ttl, json.dumps(value, default=str))
+
+    def clear(self) -> None:
+        self.client.flushdb()
