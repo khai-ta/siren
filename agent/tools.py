@@ -118,18 +118,6 @@ def get_dependencies(service: str) -> list[str]:
 
 
 @tool
-def get_callers(service: str) -> list[str]:
-    """Get services that call this service"""
-    return _engine.graph.get_callers(service)
-
-
-@tool
-def get_blast_radius(service: str) -> list[str]:
-    """Get all services affected if this service fails"""
-    return _engine.graph.get_blast_radius(service)
-
-
-@tool
 @_cache()
 def search_runbook(query: str, top_k: int = 3) -> list[dict[str, Any]]:
     """Search runbooks for failure modes and remediations"""
@@ -137,34 +125,9 @@ def search_runbook(query: str, top_k: int = 3) -> list[dict[str, Any]]:
     return _engine.reranker.rerank(query, candidates, top_n=top_k)
 
 
-@tool
-@_cache()
-def get_trace_errors(
-    service: str,
-    window_start: str,
-    window_end: str,
-    top_k: int = 10,
-) -> list[dict[str, Any]]:
-    """Get trace spans with errors or timeouts for a service"""
-    candidates = _engine.logs_store.search(
-        query=f"{service} error timeout",
-        top_k=50,
-        filter={
-            "service": service,
-            "source": "trace",
-            "status": {"$in": ["error", "timeout"]},
-            "timestamp": {"$gte": window_start, "$lte": window_end},
-        },
-    )
-    return candidates[:top_k]
-
-
 INVESTIGATION_TOOLS = [
     query_logs,
     get_metrics,
     get_dependencies,
-    get_callers,
-    get_blast_radius,
     search_runbook,
-    get_trace_errors,
 ]

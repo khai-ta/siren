@@ -22,7 +22,6 @@ from agent.tools import INVESTIGATION_TOOLS
 from processing.prompt_builder import build_investigator_prompt
 from processing.log_compressor import cluster_similar_logs
 from processing.metric_summarizer import summarize_metrics
-from processing.trace_condenser import condense_trace_errors
 from processing.evidence_digest import build_evidence_digest
 
 
@@ -282,11 +281,7 @@ def _execute_tool(tool_call: dict[str, Any]) -> Any:
             raw_result.get("peak", {}),
         )
 
-    if tool_name == "get_trace_errors":
-        return condense_trace_errors(raw_result)
-
-    # Other tools (get_dependencies, get_callers, get_blast_radius, search_runbook)
-    # return short lists or small results — no compression needed
+    # Other tools (get_dependencies, search_runbook) return small results—no compression needed
     return raw_result
 
 

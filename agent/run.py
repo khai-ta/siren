@@ -41,6 +41,8 @@ def _log_token_usage(cb) -> None:
     """Print token usage and cost estimate"""
     print(f"\nTokens used: {cb.total_tokens} (input: {cb.prompt_tokens}, output: {cb.completion_tokens})")
     print(f"Estimated cost: ${cb.total_cost:.4f}")
+    print(f"\nNote: LangChain callback doesn't show Anthropic cache metrics.")
+    print(f"Check LangSmith trace or response.usage['cache_read_input_tokens'] for actual caching effectiveness.")
 
 
 def run_investigation(
