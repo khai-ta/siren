@@ -98,6 +98,13 @@ class TimescaleStore:
             return cur.fetchall()
 
     def get_baseline(self, service: str, baseline_end: str) -> Dict:
+        # Validate that baseline_end is an ISO timestamp, not a relative string like 'now-1h'
+        from datetime import datetime
+        try:
+            # Accepts both 'YYYY-MM-DDTHH:MM:SS' and 'YYYY-MM-DD HH:MM:SS' formats
+            datetime.fromisoformat(baseline_end.replace('T', ' '))
+        except Exception:
+            raise ValueError(f"baseline_end must be an ISO timestamp, got: {baseline_end}")
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
                 """
@@ -116,6 +123,12 @@ class TimescaleStore:
             return cur.fetchone()
 
     def get_peak(self, service: str, window_start: str, window_end: str) -> Dict:
+        from datetime import datetime
+        for ts, label in [(window_start, "window_start"), (window_end, "window_end")]:
+            try:
+                datetime.fromisoformat(ts.replace('T', ' '))
+            except Exception:
+                raise ValueError(f"{label} must be an ISO timestamp, got: {ts}")
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
                 """
