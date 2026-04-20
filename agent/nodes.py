@@ -19,6 +19,11 @@ from agent.prompts import (
 )
 from agent.state import Hypothesis, InvestigationState, ToolCall
 from agent.tools import INVESTIGATION_TOOLS
+from processing.prompt_builder import build_investigator_prompt
+from processing.log_compressor import cluster_similar_logs
+from processing.metric_summarizer import summarize_metrics
+from processing.trace_condenser import condense_trace_errors
+from processing.evidence_digest import build_evidence_digest
 
 
 _fast_llm = ChatAnthropic(model="claude-haiku-4-5", temperature=0)
@@ -94,32 +99,14 @@ def investigate_step(state: InvestigationState) -> dict[str, Any]:
     step = state["current_step"] + 1
     remaining = state["max_steps"] - step
 
-    hypotheses_summary = "\n".join(
-        (
-            f"- {h['statement']} "
-            f"(confidence: {h['confidence']:.0%}, "
-            f"evidence: {len(h['evidence_for'])} for, {len(h['evidence_against'])} against)"
-        )
-        for h in state["hypotheses"]
-    )
-
-    system_prompt = INVESTIGATOR_SYSTEM_PROMPT.format(
-        anomalies_summary="\n".join(f"- {a['service']}: {a['metric']}" for a in state["anomalies"]),
-        affected_services=", ".join(sorted(set(a["service"] for a in state["anomalies"]))),
-        hypotheses_summary=hypotheses_summary or "(none)",
-        step_count=step,
-        remaining_steps=remaining,
-    )
-
-    history_text = "\n".join(
-        f"Step {tc['step']}: called {tc['tool_name']}({tc['arguments']}) -> {tc['result_summary']}"
-        for tc in state["tool_history"][-5:]
-    )
+    compressed_state = build_investigator_prompt(state)
 
     response = _reasoning_llm_with_tools.invoke(
         [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=f"Recent investigation history:\n{history_text}\n\nWhat's your next step?"),
+            SystemMessage(content=INVESTIGATOR_SYSTEM_PROMPT),
+            HumanMessage(
+                content=f"{compressed_state}\n\nWhat tool should you call next? Return one tool call or set should_conclude."
+            ),
         ]
     )
 
@@ -256,10 +243,34 @@ def _extract_json_object(text: str) -> dict[str, Any]:
 
 
 def _execute_tool(tool_call: dict[str, Any]) -> Any:
-    """Execute a tool call by name against INVESTIGATION_TOOLS"""
+    """Execute a tool call and compress results based on tool type"""
     tool_map = {t.name: t for t in INVESTIGATION_TOOLS}
     tool = tool_map[str(tool_call["name"])]
-    return tool.invoke(tool_call["args"])
+    raw_result = tool.invoke(tool_call["args"])
+
+    # Apply tool-specific compression
+    tool_name = str(tool_call["name"])
+
+    if tool_name == "query_logs":
+        # raw_result is list of log dicts
+        compressed = cluster_similar_logs(raw_result, max_per_cluster=3)
+        return "\n".join(compressed)
+
+    if tool_name == "get_metrics":
+        # raw_result is {"baseline": {...}, "peak": {...}}
+        service = tool_call["args"].get("service", "unknown")
+        return summarize_metrics(
+            service,
+            raw_result.get("baseline", {}),
+            raw_result.get("peak", {}),
+        )
+
+    if tool_name == "get_trace_errors":
+        return condense_trace_errors(raw_result)
+
+    # Other tools (get_dependencies, get_callers, get_blast_radius, search_runbook)
+    # return short lists or small results — no compression needed
+    return raw_result
 
 
 def _summarize_result(result: Any) -> str:
@@ -387,5 +398,5 @@ def _build_state_summary(state: InvestigationState) -> str:
         f"Plan:\n" + "\n".join(f"- {step}" for step in state["investigation_plan"]) + "\n\n"
         f"Hypotheses:\n{hypotheses_summary or '(none)'}\n\n"
         f"Tool history:\n{history_summary or '(none)'}\n\n"
-        f"Evidence ledger keys: {', '.join(sorted(state['evidence_ledger'].keys())) or '(none)'}"
+        f"Evidence:\n{build_evidence_digest(state['evidence_ledger'])}"
     )
