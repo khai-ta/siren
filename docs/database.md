@@ -1,11 +1,11 @@
 # Database
 
 ## Overview
-The database is the shared persistence layer for AcmeCloud transactions, sessions, and recommendation lookups. Because so many services depend on it, even a localized slowdown can ripple across the platform very quickly
+Database is the shared system of record for transactional and identity data across the platform. It serves multiple latency-sensitive call paths simultaneously, including auth, payment, and recommendation workloads. Because many critical services depend on it, small degradations can create large cross-service blast radius.
 
 ## Dependencies
 - Upstream callers: auth-service, payment-service, recommendation-service
-- Downstream dependencies: none
+- Downstream: none
 
 ## Key Metrics & Alert Thresholds
 - error_rate: normal < 0.5%, warn > 2%, critical > 5%
@@ -15,20 +15,20 @@ The database is the shared persistence layer for AcmeCloud transactions, session
 
 ## Common Failure Modes
 
-### Database Lock Contention
-**Symptoms:** Lock wait errors rise fast, p99 spikes dramatically, and connection pools get exhausted. Upstream logs usually show a mix of timeouts and retries as auth, payment, and recommendation services wait on the same hot rows
-**Likely cause:** A lock-heavy transaction, schema migration, or long-running query is blocking critical rows
-**Remediation:** Identify the blocker, roll back or terminate it if safe, and reduce write pressure until the lock clears
+### database_lock
+**Symptoms:** lock wait and deadlock signals increase, latency_p99 spikes, and caller pools begin to exhaust connections. Dependent services show synchronized timeout patterns.
+**Likely cause:** conflicting long-running transactions or hot-row contention from concurrent writes.
+**Remediation:** identify and terminate or rollback blocking sessions when safe, reduce conflicting write concurrency, and defer non-critical migrations.
 
-### Cascading Timeout
-**Symptoms:** Database p99 and error rate jump together, followed by a broad increase in errors across the dependent services. The service can look like a single bottleneck even though the blast radius is platform-wide
-**Likely cause:** Saturation or slow queries cause callers to pile up and retry
-**Remediation:** Stop or slow the hottest callers, inspect slow query logs, and restore capacity before lifting throttles
+### cascading_timeout
+**Symptoms:** elevated latency and timeout errors appear in database first, followed quickly by increased errors in auth-service, payment-service, and recommendation-service. End-user paths fail even when edge components look healthy.
+**Likely cause:** query saturation and retry amplification from multiple callers.
+**Remediation:** throttle highest-cost query paths, enforce stricter caller timeout and retry budgets, and recover capacity before restoring full throughput.
 
-### Retry Storm
-**Symptoms:** RPS on the database climbs far beyond normal traffic while latency stays high. The database may not be receiving more user demand, only more retry attempts
-**Likely cause:** Auth or payment paths are retrying on timeout and multiplying load
-**Remediation:** Tighten retry budgets, add jittered backoff, and cut off pathological callers until the backlog drains
+### memory_leak (Secondary Spillover)
+**Symptoms:** recommendation-service memory growth is followed by sustained fallback read pressure and rising database tail latency during recommendation-heavy traffic windows.
+**Likely cause:** simulator memory_leak begins in recommendation-service and increases dependency load on database through slower cache-effective processing.
+**Remediation:** mitigate recommendation-service memory leak first, apply temporary query throttles for non-critical recommendation reads, and monitor latency normalization before rollback of controls.
 
 ## On-call Escalation
-If automated remediation fails, escalate to the database platform team.
+If automated remediation fails, escalate to the database team.

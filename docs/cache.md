@@ -1,34 +1,34 @@
 # Cache
 
 ## Overview
-The cache accelerates reads for auth-service and recommendation-service in AcmeCloud. It absorbs hot-key traffic and protects the database from repeated lookups, so cache instability often shows up indirectly as a surge in database pressure
+Cache provides low-latency hot data access for auth and recommendation paths, reducing direct pressure on database. It handles the highest request volume in the platform and must remain stable under burst traffic. Cache degradation often appears first as higher miss rate and only later as downstream database saturation.
 
 ## Dependencies
 - Upstream callers: auth-service, recommendation-service
-- Downstream dependencies: none
+- Downstream: none
 
 ## Key Metrics & Alert Thresholds
 - error_rate: normal < 0.5%, warn > 2%, critical > 5%
-- latency_p99: normal < 15ms, warn > 30ms, critical > 50ms
+- latency_p99: normal < 12ms, warn > 25ms, critical > 40ms
 - cpu_pct: normal < 60%, warn > 75%, critical > 90%
 - memory_pct: normal < 70%, warn > 85%, critical > 95%
 
 ## Common Failure Modes
 
-### Cache Eviction Storm
-**Symptoms:** Hit rate collapses, eviction logs spike, and upstream services begin falling back to database reads. Error rate may still look moderate at first while latency climbs rapidly
-**Likely cause:** The working set is larger than the cache or key churn is too high
-**Remediation:** Increase capacity, tune eviction policy, and reduce churn from the hottest callers
+### cache_eviction_storm
+**Symptoms:** eviction and miss indicators climb while latency_p99 drifts upward and caller fallback traffic to database rises. Eventually error_rate increases once downstream paths saturate.
+**Likely cause:** working set exceeds cache capacity or key churn invalidates hot entries too quickly.
+**Remediation:** raise effective cache headroom, tune eviction policy for workload shape, and warm critical keys for auth and recommendation paths.
 
-### Memory Leak
-**Symptoms:** Memory usage rises gradually until eviction pressure becomes unstable, and one pod may become the clear outlier. Logs can look normal until the cache starts thrashing
-**Likely cause:** Leaked in-memory structures or an oversized local cache segment
-**Remediation:** Restart the offending instance, limit retained state, and verify the recent rollout
+### memory_leak (Secondary Spillover)
+**Symptoms:** recommendation-service memory leak increases request amplification and fallback behavior, causing cache caller pressure and noisier cache latency. Cache error rate may stay near baseline while client-facing services degrade.
+**Likely cause:** simulator memory_leak originates in recommendation-service and drives secondary stress into shared cache access paths.
+**Remediation:** stabilize recommendation-service first, then rebalance cache traffic and validate hit-rate recovery before removing mitigations.
 
-### Network Spike
-**Symptoms:** Cache latency becomes erratic, but outright errors remain low. Downstream services may see more fallback traffic even though the cache itself appears mostly alive
-**Likely cause:** Short-lived network instability between cache clients and cache nodes
-**Remediation:** Check client timeouts, move traffic away from degraded nodes, and confirm no AZ-level network issue is in progress
+### network_spike (Secondary Spillover)
+**Symptoms:** auth-service and recommendation-service experience network-spike latency and produce burstier cache access, which appears as short-lived cache p99 jitter. Cache itself usually does not become the primary failing node.
+**Likely cause:** simulator network_spike originates at api-gateway and immediate dependencies, creating indirect load volatility at cache callers.
+**Remediation:** mitigate caller-side retries and concurrency first, then confirm cache metrics return to baseline as upstream network conditions recover.
 
 ## On-call Escalation
-If automated remediation fails, escalate to the platform caching team.
+If automated remediation fails, escalate to the caching team.
