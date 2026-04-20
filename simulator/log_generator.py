@@ -1,5 +1,6 @@
 """Log generation for simulator"""
 
+import json
 import random
 from datetime import datetime
 from typing import Dict, List
@@ -33,6 +34,20 @@ def _render_log_message(template: str, row: Dict) -> str:
         memory_pct=round(min(99.9, max(0.0, float(row.get("memory", 0.0)))), 1),
         eviction_rate=random.randint(50, 2500),
     )
+
+
+def _structured_message(service: str, level: str, trace_id: str, row: Dict, detail: str) -> str:
+    payload = {
+        "level": level,
+        "service": service,
+        "instance": row.get("instance", ""),
+        "trace_id": trace_id,
+        "event": detail,
+        "duration_ms": round(float(row.get("latency_p99", 0.0)), 3),
+        "error_rate": round(float(row.get("error_rate", 0.0)), 6),
+        "query_type": "SELECT" if service == "database" else "RPC",
+    }
+    return json.dumps(payload, separators=(",", ":"))
 
 
 def _render_background_message(service: str) -> str:
@@ -104,26 +119,33 @@ def generate_logs(metrics: List[Dict], incident: IncidentProfile) -> List[Dict]:
             for _ in range(entry_count):
                 template = random.choice(templates)
                 level = "ERROR" if float(row["error_rate"]) >= baseline_error * 5.0 else "WARN"
+                trace_id = "".join(random.choice("0123456789abcdef") for _ in range(32))
+                detail = _render_log_message(template, row)
                 logs.append(
                     {
                         "timestamp": ts.isoformat(),
                         "service": service,
+                        "instance": row.get("instance", ""),
                         "level": level,
-                        "message": _render_log_message(template, row),
-                        "trace_id": "".join(random.choice("0123456789abcdef") for _ in range(32)),
+                        "message": _structured_message(service, level, trace_id, row, detail),
+                        "trace_id": trace_id,
                     }
                 )
             continue
 
         background_probability = 0.015 if not in_incident_window else 0.03
         if random.random() < background_probability:
+            level = "WARN" if random.random() < 0.25 else "INFO"
+            trace_id = "".join(random.choice("0123456789abcdef") for _ in range(32))
+            detail = _render_background_message(service)
             logs.append(
                 {
                     "timestamp": ts.isoformat(),
                     "service": service,
-                    "level": "WARN" if random.random() < 0.25 else "INFO",
-                    "message": _render_background_message(service),
-                    "trace_id": "".join(random.choice("0123456789abcdef") for _ in range(32)),
+                    "instance": row.get("instance", ""),
+                    "level": level,
+                    "message": _structured_message(service, level, trace_id, row, detail),
+                    "trace_id": trace_id,
                 }
             )
 

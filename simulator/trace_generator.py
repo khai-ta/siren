@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List
 
 from .incidents import IncidentProfile
-from .topology import SERVICES
+from .topology import SERVICE_POD_COUNTS, SERVICES
 
 
 @dataclass
@@ -17,6 +17,7 @@ class Span:
     span_id: str
     parent_span_id: str | None
     service: str
+    instance: str
     operation: str
     start_time: str
     duration_ms: float
@@ -36,6 +37,35 @@ FLOW_WEIGHTS = {
     "payment": 0.18,
 }
 TRACE_SERVICE_CLOCK_SKEW_MAX_MS = 90.0
+RETRY_STORM_INCIDENTS = {"cascading_timeout", "database_lock"}
+
+
+def _service_instances(service: str) -> List[str]:
+    count = max(1, int(SERVICE_POD_COUNTS.get(service, 3)))
+    return [f"{service}-pod-{chr(97 + idx)}" for idx in range(count)]
+
+
+def _sample_retry_attempts(
+    incident_name: str,
+    caller_service: str,
+    service: str,
+    multiplier: float,
+    in_incident_window: bool,
+) -> int:
+    if not in_incident_window:
+        return 1
+    if incident_name not in RETRY_STORM_INCIDENTS:
+        return 1
+    if caller_service != "auth-service" or service != "database":
+        return 1
+
+    severity = max(0.0, multiplier - 1.0)
+    extra_retries = 0
+    if random.random() < min(0.75, severity * 0.14):
+        extra_retries += 1
+    if random.random() < min(0.55, severity * 0.10):
+        extra_retries += 1
+    return min(3, 1 + extra_retries)
 
 
 def _flow_weights_for_incident(incident_name: str) -> Dict[str, float]:
@@ -300,6 +330,7 @@ def generate_traces(
                 span_start = base_ts + timedelta(
                     milliseconds=current_offset_ms + service_clock_skews_ms[service]
                 )
+                service_instance = random.choice(_service_instances(service))
 
                 trace_spans.append(
                     Span(
@@ -307,6 +338,7 @@ def generate_traces(
                         span_id=span_id,
                         parent_span_id=parent_span_id,
                         service=service,
+                        instance=service_instance,
                         operation=f"{request_type}.{service}",
                         start_time=span_start.isoformat(),
                         duration_ms=round(max(0.1, duration_ms), 3),
@@ -314,6 +346,39 @@ def generate_traces(
                         error_message=_span_error_message(status, service),
                     )
                 )
+
+                retry_attempts = _sample_retry_attempts(
+                    incident_name=incident.name,
+                    caller_service=flow[idx - 1] if idx > 0 else "",
+                    service=service,
+                    multiplier=multiplier,
+                    in_incident_window=in_incident_window,
+                )
+
+                if retry_attempts > 1:
+                    retry_parent = parent_span_id
+                    for retry_idx in range(2, retry_attempts + 1):
+                        retry_status = _sample_status(multiplier * 1.15, in_incident_window, True)
+                        retry_duration = duration_ms * random.uniform(0.75, 1.10)
+                        retry_span_id = uuid.uuid4().hex[:16]
+                        current_offset_ms += random.uniform(1.0, 4.0)
+                        retry_start = base_ts + timedelta(
+                            milliseconds=current_offset_ms + service_clock_skews_ms[service]
+                        )
+                        trace_spans.append(
+                            Span(
+                                trace_id=trace_id,
+                                span_id=retry_span_id,
+                                parent_span_id=retry_parent,
+                                service=service,
+                                instance=random.choice(_service_instances(service)),
+                                operation=f"{request_type}.{service}.retry_{retry_idx}",
+                                start_time=retry_start.isoformat(),
+                                duration_ms=round(max(0.1, retry_duration), 3),
+                                status=retry_status,
+                                error_message=_span_error_message(retry_status, service),
+                            )
+                        )
 
                 parent_span_id = span_id
 

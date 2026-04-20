@@ -10,6 +10,16 @@ SERVICES = {
     "message-queue": {"rps": 200, "error_rate": 0.001, "latency_p50": 5, "latency_p99": 20, "cpu": 10, "memory": 30},
 }
 
+SERVICE_POD_COUNTS = {
+    "api-gateway": 4,
+    "auth-service": 4,
+    "payment-service": 5,
+    "recommendation-service": 5,
+    "database": 3,
+    "cache": 4,
+    "message-queue": 3,
+}
+
 DEPENDENCIES = {
     "api-gateway": ["auth-service", "recommendation-service", "payment-service"],
     "auth-service": ["database", "cache"],

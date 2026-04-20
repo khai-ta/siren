@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 
 from .incidents import IncidentProfile
-from .topology import DEPENDENCIES, METRIC_KEYS, SERVICES, hops_from_origin
+from .topology import DEPENDENCIES, METRIC_KEYS, SERVICES, SERVICE_POD_COUNTS, hops_from_origin
 
 DEFAULT_GRADUAL_RAMP_MINUTES = 20.0
 DEFAULT_RECOVERY_MINUTES = 2.0
@@ -14,12 +14,79 @@ BAD_DEPLOY_MIN_ONSET = 20
 BAD_DEPLOY_MAX_ONSET = 40
 PROPAGATION_DELAY_MINUTES_PER_HOP = 0.75  # ~45 seconds per hop
 SERVICE_CLOCK_SKEW_MAX_SECONDS = 0.12
+GLOBAL_NOISE_ERROR_INCREMENT = 0.0001
+GLOBAL_NOISE_LATENCY_SPIKE_MS = 500.0
+GLOBAL_NOISE_EVENT_PROBABILITY = 0.0001
+FLAP_FAIL_SECONDS = 30
+FLAP_RECOVER_SECONDS = 60
+FLAP_RECOVERY_MULTIPLIER = 0.22
 
 
 def _diurnal_traffic_multiplier(minute_offset: float, duration_minutes: int) -> float:
     """Simulate a smooth traffic wave across the generated window"""
     phase = (minute_offset / max(1.0, float(duration_minutes))) * 2.0 * math.pi
     return 1.0 + (0.16 * math.sin(phase))
+
+
+def _service_instances(service: str) -> List[str]:
+    count = max(1, int(SERVICE_POD_COUNTS.get(service, 3)))
+    return [f"{service}-pod-{chr(97 + idx)}" for idx in range(count)]
+
+
+def _is_flap_window_active(
+    incident: IncidentProfile,
+    service: str,
+    second_offset: float,
+    incident_start_minute: int,
+    bad_deploy_start_minute: int,
+) -> bool:
+    """Model intermittent failures with 30s fail / 60s recover cadence"""
+    if incident.onset_style != "step":
+        return True
+    if service not in incident.metric_effects:
+        return True
+
+    onset_minute = _incident_onset_minute(incident, incident_start_minute, bad_deploy_start_minute)
+    if second_offset < onset_minute * 60.0:
+        return True
+
+    phase = int(second_offset - (onset_minute * 60.0)) % (FLAP_FAIL_SECONDS + FLAP_RECOVER_SECONDS)
+    return phase < FLAP_FAIL_SECONDS
+
+
+def _retry_storm_multiplier(
+    incident: IncidentProfile,
+    service: str,
+    metric: str,
+    minute_offset: float,
+    incident_start_minute: int,
+    bad_deploy_start_minute: int,
+    database_error_multiplier: float,
+    database_latency_multiplier: float,
+) -> float:
+    """Increase load non-linearly when callers retry failing downstream calls"""
+    if incident.name not in ("cascading_timeout", "database_lock"):
+        return 1.0
+
+    onset_minute = _incident_onset_minute(incident, incident_start_minute, bad_deploy_start_minute)
+    if minute_offset < onset_minute:
+        return 1.0
+
+    distress = max(0.0, database_error_multiplier - 1.0, database_latency_multiplier - 1.0)
+    if distress <= 0.0:
+        return 1.0
+
+    # Retry budget of 2 extra attempts => up to 3x total database call pressure.
+    retry_pressure = min(2.0, distress * 0.18)
+
+    if service == "database":
+        if metric in ("rps", "cpu", "memory", "latency_p99"):
+            return 1.0 + retry_pressure
+    if service == "auth-service":
+        if metric in ("rps", "cpu", "latency_p99", "latency_p50"):
+            return 1.0 + (retry_pressure * 0.35)
+
+    return 1.0
 
 
 def _noisy_value(base_value: float) -> float:
@@ -252,99 +319,157 @@ def generate_metrics(
         service: random.uniform(-SERVICE_CLOCK_SKEW_MAX_SECONDS, SERVICE_CLOCK_SKEW_MAX_SECONDS)
         for service in SERVICES
     }
+    zombie_pods = {service: random.choice(_service_instances(service)) for service in SERVICES}
 
     for tick in range(total_ticks):
         ts = start_time + timedelta(seconds=tick * tick_seconds)
+        second_offset = tick * tick_seconds
         minute_offset = (tick * tick_seconds) / 60.0
         traffic_multiplier = _diurnal_traffic_multiplier(minute_offset, duration_minutes)
 
-        for service, baseline in SERVICES.items():
-            row: Dict[str, float] = {
-                "timestamp": (ts + timedelta(seconds=service_clock_skews[service])).isoformat(),
-                "service": service,
-            }
+        database_error_multiplier = _base_effect_multiplier(
+            incident=incident,
+            service="database",
+            metric="error_rate",
+            minute_offset=minute_offset,
+            incident_start_minute=incident_start_minute,
+            bad_deploy_start_minute=bad_deploy_start_minute,
+        )
+        database_latency_multiplier = _base_effect_multiplier(
+            incident=incident,
+            service="database",
+            metric="latency_p99",
+            minute_offset=minute_offset,
+            incident_start_minute=incident_start_minute,
+            bad_deploy_start_minute=bad_deploy_start_minute,
+        )
 
-            # First pass: compute error_rate multiplier for RPS degradation correlation
-            error_multiplier = _base_effect_multiplier(
+        for service, baseline in SERVICES.items():
+            flap_active = _is_flap_window_active(
                 incident=incident,
                 service=service,
-                metric="error_rate",
-                minute_offset=minute_offset,
+                second_offset=second_offset,
                 incident_start_minute=incident_start_minute,
                 bad_deploy_start_minute=bad_deploy_start_minute,
             )
-            error_multiplier = _apply_recovery(
-                incident=incident,
-                current_multiplier=error_multiplier,
-                minute_offset=minute_offset,
-                incident_start_minute=incident_start_minute,
-                bad_deploy_start_minute=bad_deploy_start_minute,
-            )
-            # Apply recovery spike (secondary effect after recovery)
-            error_multiplier = _apply_recovery_spike(
-                incident=incident,
-                minute_offset=minute_offset,
-                incident_start_minute=incident_start_minute,
-                bad_deploy_start_minute=bad_deploy_start_minute,
-                multiplier=error_multiplier,
-                metric="error_rate",
-            )
 
-            for metric in METRIC_KEYS:
-                base_value = _noisy_value(float(baseline[metric]))
+            for instance in _service_instances(service):
+                row: Dict[str, float] = {
+                    "timestamp": (ts + timedelta(seconds=service_clock_skews[service])).isoformat(),
+                    "service": service,
+                    "instance": instance,
+                }
 
-                # Diurnal load signal keeps metrics from looking static over time
-                if metric == "rps":
-                    base_value *= traffic_multiplier
-                elif metric in ("cpu", "memory"):
-                    base_value *= 1.0 + ((traffic_multiplier - 1.0) * 0.45)
-                elif metric in ("latency_p50", "latency_p99"):
-                    # Latency rises with load but does not improve as aggressively on low-load periods
-                    base_value *= 1.0 + (max(0.0, traffic_multiplier - 1.0) * 0.35)
-                elif metric == "error_rate":
-                    base_value *= 1.0 + (max(0.0, traffic_multiplier - 1.0) * 0.25)
+                # First pass: compute error_rate multiplier for RPS degradation correlation
+                error_multiplier = _base_effect_multiplier(
+                    incident=incident,
+                    service=service,
+                    metric="error_rate",
+                    minute_offset=minute_offset,
+                    incident_start_minute=incident_start_minute,
+                    bad_deploy_start_minute=bad_deploy_start_minute,
+                )
+                error_multiplier = _apply_recovery(
+                    incident=incident,
+                    current_multiplier=error_multiplier,
+                    minute_offset=minute_offset,
+                    incident_start_minute=incident_start_minute,
+                    bad_deploy_start_minute=bad_deploy_start_minute,
+                )
+                error_multiplier = _apply_recovery_spike(
+                    incident=incident,
+                    minute_offset=minute_offset,
+                    incident_start_minute=incident_start_minute,
+                    bad_deploy_start_minute=bad_deploy_start_minute,
+                    multiplier=error_multiplier,
+                    metric="error_rate",
+                )
 
-                # Use pre-computed error multiplier for error_rate
-                if metric == "error_rate":
-                    multiplier = error_multiplier
-                else:
-                    multiplier = _base_effect_multiplier(
+                if not flap_active:
+                    error_multiplier = 1.0 + ((error_multiplier - 1.0) * FLAP_RECOVERY_MULTIPLIER)
+
+                # Single-bad-host behavior where one pod is much worse than peers
+                if instance == zombie_pods[service] and service == incident.origin_service:
+                    if incident.name in ("bad_deployment", "memory_leak") and minute_offset >= incident_start_minute:
+                        error_multiplier *= 2.2
+
+                noise_error_event = random.random() < GLOBAL_NOISE_EVENT_PROBABILITY
+                noise_latency_event = random.random() < GLOBAL_NOISE_EVENT_PROBABILITY
+
+                for metric in METRIC_KEYS:
+                    base_value = _noisy_value(float(baseline[metric]))
+
+                    # Diurnal load signal keeps metrics from looking static over time
+                    if metric == "rps":
+                        base_value *= traffic_multiplier
+                    elif metric in ("cpu", "memory"):
+                        base_value *= 1.0 + ((traffic_multiplier - 1.0) * 0.45)
+                    elif metric in ("latency_p50", "latency_p99"):
+                        # Latency rises with load but does not improve as aggressively on low-load periods
+                        base_value *= 1.0 + (max(0.0, traffic_multiplier - 1.0) * 0.35)
+                    elif metric == "error_rate":
+                        base_value *= 1.0 + (max(0.0, traffic_multiplier - 1.0) * 0.25)
+
+                    if metric == "error_rate":
+                        multiplier = error_multiplier
+                    else:
+                        multiplier = _base_effect_multiplier(
+                            incident=incident,
+                            service=service,
+                            metric=metric,
+                            minute_offset=minute_offset,
+                            incident_start_minute=incident_start_minute,
+                            bad_deploy_start_minute=bad_deploy_start_minute,
+                        )
+
+                        multiplier = _apply_recovery(
+                            incident=incident,
+                            current_multiplier=multiplier,
+                            minute_offset=minute_offset,
+                            incident_start_minute=incident_start_minute,
+                            bad_deploy_start_minute=bad_deploy_start_minute,
+                        )
+
+                        if metric in ("latency_p99", "latency_p50"):
+                            multiplier = _apply_recovery_spike(
+                                incident=incident,
+                                minute_offset=minute_offset,
+                                incident_start_minute=incident_start_minute,
+                                bad_deploy_start_minute=bad_deploy_start_minute,
+                                multiplier=multiplier,
+                                metric=metric,
+                            )
+
+                    if not flap_active and metric in ("error_rate", "latency_p99", "latency_p50"):
+                        multiplier = 1.0 + ((multiplier - 1.0) * FLAP_RECOVERY_MULTIPLIER)
+
+                    retry_multiplier = _retry_storm_multiplier(
                         incident=incident,
                         service=service,
                         metric=metric,
                         minute_offset=minute_offset,
                         incident_start_minute=incident_start_minute,
                         bad_deploy_start_minute=bad_deploy_start_minute,
+                        database_error_multiplier=database_error_multiplier,
+                        database_latency_multiplier=database_latency_multiplier,
                     )
+                    multiplier *= retry_multiplier
 
-                    multiplier = _apply_recovery(
-                        incident=incident,
-                        current_multiplier=multiplier,
-                        minute_offset=minute_offset,
-                        incident_start_minute=incident_start_minute,
-                        bad_deploy_start_minute=bad_deploy_start_minute,
-                    )
-                    
-                    # Apply recovery spike to latency_p99 and latency_p50
-                    if metric in ("latency_p99", "latency_p50"):
-                        multiplier = _apply_recovery_spike(
-                            incident=incident,
-                            minute_offset=minute_offset,
-                            incident_start_minute=incident_start_minute,
-                            bad_deploy_start_minute=bad_deploy_start_minute,
-                            multiplier=multiplier,
-                            metric=metric,
-                        )
+                    if metric == "rps" and error_multiplier > 1.0:
+                        rps_multiplier = _apply_rps_degradation(error_multiplier, float(baseline["error_rate"]))
+                        multiplier *= rps_multiplier
 
-                # Apply RPS degradation if error rate is elevated
-                if metric == "rps" and error_multiplier > 1.0:
-                    # Apply RPS drop correlated with error rate increase
-                    rps_multiplier = _apply_rps_degradation(error_multiplier, float(baseline["error_rate"]))
-                    multiplier *= rps_multiplier
+                    value = _clamp_metric(metric, base_value * multiplier)
 
-                value = _clamp_metric(metric, base_value * multiplier)
-                row[metric] = round(value, 6)
+                    if metric == "error_rate" and noise_error_event:
+                        value += GLOBAL_NOISE_ERROR_INCREMENT
+                    if metric == "latency_p99" and noise_latency_event:
+                        value += GLOBAL_NOISE_LATENCY_SPIKE_MS
+                    if metric == "latency_p50" and noise_latency_event:
+                        value += GLOBAL_NOISE_LATENCY_SPIKE_MS * 0.10
 
-            rows.append(row)
+                    row[metric] = round(value, 6)
+
+                rows.append(row)
 
     return rows
