@@ -146,12 +146,11 @@ def get_trace_errors(
 
     Use this to inspect failed request paths and error messages
     """
-    candidates = _engine.logs_store.search(
+    candidates = _engine.traces_store.search(
         query=f"{service} error timeout",
         top_k=50,
         filter={
             "service": service,
-            "source": "trace",
             "status": {"$in": ["error", "timeout"]},
             "timestamp": {"$gte": window_start, "$lte": window_end},
         },

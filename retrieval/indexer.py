@@ -117,7 +117,7 @@ def index_incident(
     trace_count = 0
     if traces_csv:
         trace_texts, trace_metas, trace_ids = _load_traces(traces_csv)
-        orchestrator.logs_store.upsert(trace_texts, trace_metas, trace_ids)
+        orchestrator.traces_store.upsert(trace_texts, trace_metas, trace_ids)
         trace_count = len(trace_texts)
     counts["trace_rows"] = trace_count
 

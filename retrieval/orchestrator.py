@@ -17,6 +17,7 @@ Settings.embed_model = OpenAIEmbedding(model="text-embedding-3-small")
 class SirenQueryEngine:
     def __init__(self) -> None:
         self.logs_store = PineconeStore("siren-logs")
+        self.traces_store = PineconeStore("siren-traces")
         self.docs_store = PineconeStore("siren-docs")
         self.graph = Neo4jStore()
         self.metrics = TimescaleStore()
@@ -73,13 +74,11 @@ class SirenQueryEngine:
             source="log",
             top_k=50,
         )
-        trace_candidates = self._search_logs_with_window(
+        trace_candidates = self.traces_store.search(
             query=query,
-            window_start=window_start,
-            window_end=window_end,
-            source="trace",
             top_k=30,
-        )
+            filter={"timestamp": {"$gte": window_start, "$lte": window_end}},
+        ) or self.traces_store.search(query=query, top_k=30)
 
         doc_candidates = self.docs_store.search(query=query, top_k=20)
 
