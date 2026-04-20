@@ -23,6 +23,37 @@ class SirenQueryEngine:
         self.reranker = CohereReranker()
         self.cache = RetrievalCache()
 
+    def _search_logs_with_window(
+        self,
+        *,
+        query: str,
+        window_start: str,
+        window_end: str,
+        source: str,
+        top_k: int,
+    ) -> List[Dict[str, Any]]:
+        candidates = self.logs_store.search(
+            query=query,
+            top_k=top_k,
+            filter={
+                "source": {"$eq": source},
+                "timestamp": {"$gte": window_start, "$lte": window_end},
+            },
+        )
+        if candidates:
+            return candidates
+
+        fallback_filter: Dict[str, Any] = {"source": {"$eq": source}}
+        if source == "log":
+            fallback_filter = {
+                "timestamp": {"$gte": window_start, "$lte": window_end},
+            }
+
+        return self.logs_store.search(query=query, top_k=top_k, filter=fallback_filter)
+
+    def _top_reranked(self, query: str, candidates: List[Dict[str, Any]], top_n: int) -> List[Dict[str, Any]]:
+        return self.reranker.rerank(query, candidates, top_n=top_n)
+
     def retrieve(
         self,
         query: str,
@@ -35,37 +66,26 @@ class SirenQueryEngine:
         if cached is not None:
             return cached
 
-        log_candidates = self.logs_store.search(
+        log_candidates = self._search_logs_with_window(
             query=query,
+            window_start=window_start,
+            window_end=window_end,
+            source="log",
             top_k=50,
-            filter={
-                "source": {"$eq": "log"},
-                "timestamp": {"$gte": window_start, "$lte": window_end},
-            },
         )
-        if not log_candidates:
-            log_candidates = self.logs_store.search(
-                query=query,
-                top_k=50,
-                filter={"timestamp": {"$gte": window_start, "$lte": window_end}},
-            )
-
-        trace_candidates = self.logs_store.search(
+        trace_candidates = self._search_logs_with_window(
             query=query,
+            window_start=window_start,
+            window_end=window_end,
+            source="trace",
             top_k=30,
-            filter={
-                "source": {"$eq": "trace"},
-                "timestamp": {"$gte": window_start, "$lte": window_end},
-            },
         )
-        if not trace_candidates:
-            trace_candidates = self.logs_store.search(query=query, top_k=30, filter={"source": {"$eq": "trace"}})
 
         doc_candidates = self.docs_store.search(query=query, top_k=20)
 
-        top_logs = self.reranker.rerank(query, log_candidates, top_n=15)
-        top_traces = self.reranker.rerank(query, trace_candidates, top_n=10)
-        top_docs = self.reranker.rerank(query, doc_candidates, top_n=5)
+        top_logs = self._top_reranked(query, log_candidates, top_n=15)
+        top_traces = self._top_reranked(query, trace_candidates, top_n=10)
+        top_docs = self._top_reranked(query, doc_candidates, top_n=5)
 
         blast_radius = self.graph.get_blast_radius(origin_service)
         cascade_paths = self.graph.get_critical_cascade_paths(origin_service)
