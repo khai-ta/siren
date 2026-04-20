@@ -1,16 +1,60 @@
 """Tool definitions for the autonomous investigation agent"""
 
 from __future__ import annotations
+
+import functools
+import hashlib
+import json
+import os
 from typing import Any
+
 from langchain_core.tools import tool
 from retrieval.orchestrator import SirenQueryEngine
 
 
-# Shared engine instance across tools
 _engine = SirenQueryEngine()
+_CACHE_TTL = int(os.getenv("TOOL_CACHE_TTL", "300"))
+
+
+def _redis():
+    url = os.getenv("REDIS_URL", "").strip()
+    if not url:
+        return None
+    try:
+        import redis
+        return redis.from_url(url)
+    except Exception:
+        return None
+
+
+def _cache(ttl: int = _CACHE_TTL):
+    """Decorator that caches tool results in Redis keyed by function name + kwargs"""
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            r = _redis()
+            if r is None:
+                return fn(*args, **kwargs)
+            raw = json.dumps({"fn": fn.__name__, **kwargs}, sort_keys=True, default=str)
+            key = f"siren:tool:{hashlib.sha256(raw.encode()).hexdigest()[:20]}"
+            try:
+                hit = r.get(key)
+                if hit:
+                    return json.loads(hit)
+            except Exception:
+                pass
+            result = fn(*args, **kwargs)
+            try:
+                r.setex(key, ttl, json.dumps(result, default=str))
+            except Exception:
+                pass
+            return result
+        return wrapper
+    return decorator
 
 
 @tool
+@_cache()
 def query_logs(
     service: str,
     query: str,
@@ -35,6 +79,7 @@ def query_logs(
 
 
 @tool
+@_cache()
 def get_metrics(
     service: str,
     window_start: str,
@@ -79,6 +124,7 @@ def get_blast_radius(service: str) -> list[str]:
 
 
 @tool
+@_cache()
 def search_runbook(query: str, top_k: int = 3) -> list[dict[str, Any]]:
     """Search service runbooks for matching failure modes
 
@@ -89,6 +135,7 @@ def search_runbook(query: str, top_k: int = 3) -> list[dict[str, Any]]:
 
 
 @tool
+@_cache()
 def get_trace_errors(
     service: str,
     window_start: str,

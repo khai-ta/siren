@@ -2,11 +2,31 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from typing import Any
 
 from agent.graph import build_investigation_graph
 from agent.state import InvestigationState
+
+
+def _invoke_with_checkpointer(initial_state: InvestigationState, config: dict) -> dict[str, Any]:
+    """Build graph + invoke, keeping Postgres connection alive for the full run"""
+    checkpoint_uri = os.getenv("CHECKPOINT_URI", "").strip()
+
+    if checkpoint_uri:
+        try:
+            from langgraph.checkpoint.postgres import PostgresSaver
+
+            with PostgresSaver.from_conn_string(checkpoint_uri) as saver:
+                saver.setup()
+                graph = build_investigation_graph(saver)
+                return dict(graph.invoke(initial_state, config=config))
+        except Exception:
+            pass
+
+    graph = build_investigation_graph()
+    return dict(graph.invoke(initial_state, config=config))
 
 
 def run_investigation(
@@ -18,7 +38,6 @@ def run_investigation(
     max_steps: int = 15,
 ) -> dict[str, Any]:
     """Run a full agent investigation and return the final state"""
-    graph = build_investigation_graph()
     incident_id = incident_id or str(uuid.uuid4())[:12]
 
     initial_state: InvestigationState = {
@@ -40,9 +59,7 @@ def run_investigation(
     }
 
     config = {"configurable": {"thread_id": incident_id}}
-    final_state = graph.invoke(initial_state, config=config)
-
-    return dict(final_state)
+    return _invoke_with_checkpointer(initial_state, config)
 
 
 # Backward-compatible alias while the rest of the codebase migrates

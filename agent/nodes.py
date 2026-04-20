@@ -48,7 +48,10 @@ def plan_investigation(state: InvestigationState) -> dict[str, Any]:
         ]
     )
 
-    plan = _extract_json_list(str(response.content))
+    parsed = _extract_json_object(str(response.content))
+    plan: list[str] = parsed.get("plan") or _extract_json_list(str(response.content))
+    competing_statement: str = str(parsed.get("competing_hypothesis") or "")
+
     if not plan:
         plan = [
             "Validate the earliest anomaly timing and service ownership",
@@ -56,7 +59,7 @@ def plan_investigation(state: InvestigationState) -> dict[str, Any]:
             "Gather logs, traces, and metrics to confirm or reject hypotheses",
         ]
 
-    initial_hypothesis: Hypothesis = {
+    primary_hypothesis: Hypothesis = {
         "id": str(uuid.uuid4())[:8],
         "statement": f"{state['origin_service']} is the root cause of the incident",
         "confidence": 0.3,
@@ -65,9 +68,22 @@ def plan_investigation(state: InvestigationState) -> dict[str, Any]:
         "status": "open",
     }
 
+    hypotheses: list[Hypothesis] = [primary_hypothesis]
+
+    if competing_statement:
+        rival_hypothesis: Hypothesis = {
+            "id": str(uuid.uuid4())[:8],
+            "statement": competing_statement,
+            "confidence": 0.2,
+            "evidence_for": [],
+            "evidence_against": [],
+            "status": "open",
+        }
+        hypotheses.append(rival_hypothesis)
+
     return {
         "investigation_plan": plan,
-        "hypotheses": [initial_hypothesis],
+        "hypotheses": hypotheses,
         "current_step": 0,
     }
 

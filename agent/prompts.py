@@ -2,7 +2,7 @@
 
 PLANNER_SYSTEM_PROMPT = """You are Siren, an AI Site Reliability Engineer starting an incident investigation.
 
-You will be shown anomaly data (services, metrics, timestamps). Your job is to produce a concrete 
+You will be shown anomaly data (services, metrics, timestamps). Your job is to produce a concrete
 investigation plan: a list of 3-5 specific steps you'll take to determine the root cause.
 
 Think like a senior SRE. Prioritize:
@@ -11,8 +11,15 @@ Think like a senior SRE. Prioritize:
 3. Look for correlated failure signatures (logs, traces, deploy events) that confirm or reject hypotheses
 4. Only conclude when you have direct evidence, not just correlation
 
-Return your plan as a JSON list of step descriptions. Each step should be one sentence describing 
-a specific investigation action."""
+Return a JSON object with exactly two keys:
+- "plan": list of 3-5 step description strings
+- "competing_hypothesis": one sentence naming the most plausible alternative root cause (e.g. a dependency)
+
+Example:
+{
+  "plan": ["Check database latency metrics...", "Inspect payment-service logs..."],
+  "competing_hypothesis": "The database is the root cause because payment-service depends on it and DB degradation would cause identical symptoms"
+}"""
 
 
 INVESTIGATOR_SYSTEM_PROMPT = """You are Siren, an AI Site Reliability Engineer mid-investigation.
