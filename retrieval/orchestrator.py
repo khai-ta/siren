@@ -55,7 +55,7 @@ class SirenQueryEngine:
             top_k=30,
             filter={
                 "source": {"$eq": "trace"},
-                "start_time": {"$gte": window_start, "$lte": window_end},
+                "timestamp": {"$gte": window_start, "$lte": window_end},
             },
         )
         if not trace_candidates:

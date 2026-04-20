@@ -61,6 +61,7 @@ def index_incident(
                 trace_metas.append(
                     {
                         "text": trace_texts[-1],
+                        "timestamp": row.get("start_time", ""),
                         "trace_id": row.get("trace_id", ""),
                         "span_id": row.get("span_id", ""),
                         "parent_span_id": row.get("parent_span_id", ""),
@@ -112,15 +113,59 @@ def index_incident(
 class RetrievalIndexer:
     """Compatibility wrapper around the batch ingestion flow"""
 
-    def __init__(self, vector_store: Any, graph_store: Any, metric_store: Any) -> None:
-        self.vector_store = vector_store
-        self.graph_store = graph_store
-        self.metric_store = metric_store
+    def __init__(
+        self,
+        vector_store: Any,
+        graph_store: Any,
+        metric_store: Any,
+        docs_store: Any | None = None,
+    ) -> None:
+        self.logs_store = vector_store
+        self.docs_store = docs_store or vector_store
+        self.graph = graph_store
+        self.metrics = metric_store
+
+    @staticmethod
+    def _paths_for_bundle(metrics_csv: str) -> tuple[Path, Path, Path, Path]:
+        metrics_path = Path(metrics_csv).resolve()
+        logs_path = metrics_path.parent.parent / "logs" / metrics_path.name
+        traces_path = metrics_path.parent.parent / "traces" / metrics_path.name
+        docs_path = metrics_path.parent.parent.parent / "docs"
+        return metrics_path, logs_path, traces_path, docs_path
 
     def index_runbooks(self, docs_dir: str) -> int:
-        del docs_dir
-        return 0
+        chunks: list[str] = []
+        chunk_metas: list[Dict[str, Any]] = []
+        chunk_ids: list[str] = []
+        for md_path in Path(docs_dir).glob("*.md"):
+            service = md_path.stem
+            content = md_path.read_text(encoding="utf-8")
+            sections = re.split(r"^## ", content, flags=re.MULTILINE)
+            for index, section in enumerate(sections):
+                if not section.strip():
+                    continue
+                section_text = section.strip()
+                chunks.append(section_text)
+                chunk_metas.append(
+                    {
+                        "text": section_text,
+                        "service": service,
+                        "source_file": md_path.name,
+                        "section_idx": index,
+                    }
+                )
+                chunk_ids.append(f"{service}_section_{index}")
+
+        if chunks:
+            self.docs_store.upsert(chunks, chunk_metas, chunk_ids)
+        return len(chunks)
 
     def index_incident_bundle(self, metrics_csv: str) -> Dict[str, int]:
-        del metrics_csv
-        return {"metrics_rows": 0, "log_rows": 0, "trace_rows": 0}
+        metrics_path, logs_path, traces_path, docs_path = self._paths_for_bundle(metrics_csv)
+        return index_incident(
+            metrics_csv=str(metrics_path),
+            logs_csv=str(logs_path),
+            docs_dir=str(docs_path),
+            orchestrator=self,
+            traces_csv=str(traces_path) if traces_path.exists() else None,
+        )

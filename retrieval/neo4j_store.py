@@ -49,7 +49,7 @@ class Neo4jStore:
                     )
 
     def get_blast_radius(self, service: str) -> List[str]:
-        """All services transitively upstream that depend on the target service"""
+        """All services that transitively depend on the target service"""
         with self.driver.session() as session:
             result = session.run(
                 """

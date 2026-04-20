@@ -3,7 +3,7 @@
 import csv
 import os
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import psycopg2
 from psycopg2.extras import RealDictCursor, execute_values
@@ -46,6 +46,10 @@ class TimescaleStore:
             cur.execute("CREATE INDEX IF NOT EXISTS idx_metrics_service ON metrics(service, timestamp DESC);")
 
     def ingest_csv(self, csv_path: str) -> int:
+        def _parse_optional_float(row: Dict[str, str], key: str) -> float | None:
+            value = row.get(key)
+            return float(value) if value not in (None, "") else None
+
         rows = []
         with open(csv_path, "r", encoding="utf-8", newline="") as handle:
             reader = csv.DictReader(handle)
@@ -54,12 +58,12 @@ class TimescaleStore:
                     (
                         row["timestamp"],
                         row["service"],
-                        float(row.get("rps") or 0) if row.get("rps") not in (None, "") else None,
-                        float(row.get("error_rate") or 0) if row.get("error_rate") not in (None, "") else None,
-                        float(row.get("latency_p50") or 0) if row.get("latency_p50") not in (None, "") else None,
-                        float(row.get("latency_p99") or 0) if row.get("latency_p99") not in (None, "") else None,
-                        float(row.get("cpu") or 0) if row.get("cpu") not in (None, "") else None,
-                        float(row.get("memory") or 0) if row.get("memory") not in (None, "") else None,
+                        _parse_optional_float(row, "rps"),
+                        _parse_optional_float(row, "error_rate"),
+                        _parse_optional_float(row, "latency_p50"),
+                        _parse_optional_float(row, "latency_p99"),
+                        _parse_optional_float(row, "cpu"),
+                        _parse_optional_float(row, "memory"),
                     )
                 )
 

@@ -8,10 +8,6 @@ from openai import OpenAI
 from pinecone import Pinecone, ServerlessSpec
 
 
-DEFAULT_LOG_INDEX = "siren-logs"
-DEFAULT_DOC_INDEX = "siren-docs"
-
-
 @dataclass
 class VectorEvidence:
     evidence_id: str
@@ -29,7 +25,6 @@ class PineconeStore:
         self.index_name = index_name
         self.dimension = dimension
 
-        self._ensure_default_indexes()
         self._ensure_index(index_name)
         self.index = self.pc.Index(index_name)
 
@@ -59,10 +54,6 @@ class PineconeStore:
             metric="cosine",
             spec=ServerlessSpec(cloud="aws", region="us-east-1"),
         )
-
-    def _ensure_default_indexes(self) -> None:
-        self._ensure_index(DEFAULT_LOG_INDEX)
-        self._ensure_index(DEFAULT_DOC_INDEX)
 
     def embed(self, texts: List[str]) -> List[List[float]]:
         response = self.openai.embeddings.create(
