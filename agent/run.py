@@ -6,6 +6,8 @@ import os
 import uuid
 from typing import Any
 
+from langchain_community.callbacks.manager import get_openai_callback
+
 from agent.graph import build_investigation_graph
 from agent.state import InvestigationState
 
@@ -14,19 +16,33 @@ def _invoke_with_checkpointer(initial_state: InvestigationState, config: dict) -
     """Build graph + invoke, keeping Postgres connection alive for the full run"""
     checkpoint_uri = os.getenv("CHECKPOINT_URI", "").strip()
 
-    if checkpoint_uri:
-        try:
-            from langgraph.checkpoint.postgres import PostgresSaver
+    with get_openai_callback() as cb:
+        if checkpoint_uri:
+            try:
+                from langgraph.checkpoint.postgres import PostgresSaver
 
-            with PostgresSaver.from_conn_string(checkpoint_uri) as saver:
-                saver.setup()
-                graph = build_investigation_graph(saver)
-                return dict(graph.invoke(initial_state, config=config))
-        except Exception as error:
-            print(f"Postgres checkpointer unavailable ({error}) — falling back to in-memory")
+                with PostgresSaver.from_conn_string(checkpoint_uri) as saver:
+                    saver.setup()
+                    graph = build_investigation_graph(saver)
+                    final_state = dict(graph.invoke(initial_state, config=config))
+            except Exception as error:
+                print(f"Postgres checkpointer unavailable ({error}) — falling back to in-memory")
+                graph = build_investigation_graph()
+                final_state = dict(graph.invoke(initial_state, config=config))
+        else:
+            graph = build_investigation_graph()
+            final_state = dict(graph.invoke(initial_state, config=config))
 
-    graph = build_investigation_graph()
-    return dict(graph.invoke(initial_state, config=config))
+    _log_token_usage(cb)
+    return final_state
+
+
+def _log_token_usage(cb) -> None:
+    """Print token usage and cost estimate"""
+    print(f"\nTokens used: {cb.total_tokens} (input: {cb.prompt_tokens}, output: {cb.completion_tokens})")
+    print(f"Estimated cost: ${cb.total_cost:.4f}")
+    print(f"\nNote: LangChain callback doesn't show Anthropic cache metrics.")
+    print(f"Check LangSmith trace or response.usage['cache_read_input_tokens'] for actual caching effectiveness.")
 
 
 def run_investigation(

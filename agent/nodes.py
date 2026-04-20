@@ -19,11 +19,20 @@ from agent.prompts import (
 )
 from agent.state import Hypothesis, InvestigationState, ToolCall
 from agent.tools import INVESTIGATION_TOOLS
+from processing.prompt_builder import build_investigator_prompt
+from processing.log_compressor import cluster_similar_logs
+from processing.metric_summarizer import summarize_metrics
+from processing.evidence_digest import build_evidence_digest
 
 
 _fast_llm = ChatAnthropic(model="claude-haiku-4-5", temperature=0)
-_reasoning_llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0)
-_reasoning_llm_with_tools = _reasoning_llm.bind_tools(INVESTIGATION_TOOLS)
+_reasoning_llm = ChatAnthropic(
+    model="claude-sonnet-4-6",
+    temperature=0,
+    extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
+)
+# Tools only needed for investigate_step; plan/verify/report don't use tools
+_investigator_llm_with_tools = _reasoning_llm.bind_tools(INVESTIGATION_TOOLS)
 
 
 @traceable(name="plan_investigation")
@@ -36,7 +45,10 @@ def plan_investigation(state: InvestigationState) -> dict[str, Any]:
 
     response = _reasoning_llm.invoke(
         [
-            SystemMessage(content=PLANNER_SYSTEM_PROMPT),
+            SystemMessage(
+                content=PLANNER_SYSTEM_PROMPT,
+                additional_kwargs={"cache_control": {"type": "ephemeral"}},
+            ),
             HumanMessage(
                 content=(
                     "Anomalies detected:\n"
@@ -94,32 +106,17 @@ def investigate_step(state: InvestigationState) -> dict[str, Any]:
     step = state["current_step"] + 1
     remaining = state["max_steps"] - step
 
-    hypotheses_summary = "\n".join(
-        (
-            f"- {h['statement']} "
-            f"(confidence: {h['confidence']:.0%}, "
-            f"evidence: {len(h['evidence_for'])} for, {len(h['evidence_against'])} against)"
-        )
-        for h in state["hypotheses"]
-    )
+    compressed_state = build_investigator_prompt(state)
 
-    system_prompt = INVESTIGATOR_SYSTEM_PROMPT.format(
-        anomalies_summary="\n".join(f"- {a['service']}: {a['metric']}" for a in state["anomalies"]),
-        affected_services=", ".join(sorted(set(a["service"] for a in state["anomalies"]))),
-        hypotheses_summary=hypotheses_summary or "(none)",
-        step_count=step,
-        remaining_steps=remaining,
-    )
-
-    history_text = "\n".join(
-        f"Step {tc['step']}: called {tc['tool_name']}({tc['arguments']}) -> {tc['result_summary']}"
-        for tc in state["tool_history"][-5:]
-    )
-
-    response = _reasoning_llm_with_tools.invoke(
+    response = _investigator_llm_with_tools.invoke(
         [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=f"Recent investigation history:\n{history_text}\n\nWhat's your next step?"),
+            SystemMessage(
+                content=INVESTIGATOR_SYSTEM_PROMPT,
+                additional_kwargs={"cache_control": {"type": "ephemeral"}},
+            ),
+            HumanMessage(
+                content=f"{compressed_state}\n\nWhat tool should you call next? Return one tool call or set should_conclude."
+            ),
         ]
     )
 
@@ -178,7 +175,10 @@ def verify_hypothesis(state: InvestigationState) -> dict[str, Any]:
 
     response = _reasoning_llm.invoke(
         [
-            SystemMessage(content=VERIFIER_SYSTEM_PROMPT),
+            SystemMessage(
+                content=VERIFIER_SYSTEM_PROMPT,
+                additional_kwargs={"cache_control": {"type": "ephemeral"}},
+            ),
             HumanMessage(content=f"Investigation state:\n{state_summary}\n\nVerify the root cause"),
         ]
     )
@@ -201,7 +201,10 @@ def write_report(state: InvestigationState) -> dict[str, Any]:
 
     response = _reasoning_llm.invoke(
         [
-            SystemMessage(content=REPORTER_SYSTEM_PROMPT),
+            SystemMessage(
+                content=REPORTER_SYSTEM_PROMPT,
+                additional_kwargs={"cache_control": {"type": "ephemeral"}},
+            ),
             HumanMessage(content=f"Investigation complete\n\n{state_summary}\n\nWrite the final RCA report"),
         ]
     )
@@ -256,10 +259,30 @@ def _extract_json_object(text: str) -> dict[str, Any]:
 
 
 def _execute_tool(tool_call: dict[str, Any]) -> Any:
-    """Execute a tool call by name against INVESTIGATION_TOOLS"""
+    """Execute a tool call and compress results based on tool type"""
     tool_map = {t.name: t for t in INVESTIGATION_TOOLS}
     tool = tool_map[str(tool_call["name"])]
-    return tool.invoke(tool_call["args"])
+    raw_result = tool.invoke(tool_call["args"])
+
+    # Apply tool-specific compression
+    tool_name = str(tool_call["name"])
+
+    if tool_name == "query_logs":
+        # raw_result is list of log dicts
+        compressed = cluster_similar_logs(raw_result, max_per_cluster=3)
+        return "\n".join(compressed)
+
+    if tool_name == "get_metrics":
+        # raw_result is {"baseline": {...}, "peak": {...}}
+        service = tool_call["args"].get("service", "unknown")
+        return summarize_metrics(
+            service,
+            raw_result.get("baseline", {}),
+            raw_result.get("peak", {}),
+        )
+
+    # Other tools (get_dependencies, search_runbook) return small results—no compression needed
+    return raw_result
 
 
 def _summarize_result(result: Any) -> str:
@@ -377,15 +400,23 @@ def _build_state_summary(state: InvestigationState) -> str:
         for tc in state["tool_history"]
     )
 
-    return (
-        f"incident_id: {state['incident_id']}\n"
-        f"origin_service: {state['origin_service']}\n"
-        f"window: {state['window_start']} to {state['window_end']}\n"
-        f"current_step: {state['current_step']} / {state['max_steps']}\n"
-        f"should_conclude: {state['should_conclude']}\n\n"
-        f"Anomalies:\n{anomalies_summary or '(none)'}\n\n"
-        f"Plan:\n" + "\n".join(f"- {step}" for step in state["investigation_plan"]) + "\n\n"
-        f"Hypotheses:\n{hypotheses_summary or '(none)'}\n\n"
-        f"Tool history:\n{history_summary or '(none)'}\n\n"
-        f"Evidence ledger keys: {', '.join(sorted(state['evidence_ledger'].keys())) or '(none)'}"
-    )
+    sections = [
+        f"incident_id: {state['incident_id']}",
+        f"origin_service: {state['origin_service']}",
+        f"window: {state['window_start']} to {state['window_end']}",
+        f"current_step: {state['current_step']} / {state['max_steps']}",
+        f"should_conclude: {state['should_conclude']}",
+        f"\nAnomalies:\n{anomalies_summary or '(none)'}",
+    ]
+
+    # Include plan only in early steps (static after planner)
+    if state["current_step"] <= 3:
+        sections.append("Plan:\n" + "\n".join(f"- {step}" for step in state["investigation_plan"]))
+
+    sections.extend([
+        f"Hypotheses:\n{hypotheses_summary or '(none)'}",
+        f"Tool history:\n{history_summary or '(none)'}",
+        f"Evidence:\n{build_evidence_digest(state['evidence_ledger'])}",
+    ])
+
+    return "\n\n".join(sections)
