@@ -13,6 +13,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from dotenv import load_dotenv
+load_dotenv(PROJECT_ROOT / ".env")
+
 from retrieval.indexer import index_incident
 from retrieval.orchestrator import SirenQueryEngine
 from agent.run import run_investigation as _run_agent
