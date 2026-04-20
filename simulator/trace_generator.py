@@ -35,6 +35,7 @@ FLOW_WEIGHTS = {
     "recommend": 0.34,
     "payment": 0.18,
 }
+TRACE_SERVICE_CLOCK_SKEW_MAX_MS = 90.0
 
 
 def _flow_weights_for_incident(incident_name: str) -> Dict[str, float]:
@@ -248,6 +249,10 @@ def generate_traces(
     start_time, minute_index = _build_metric_index(metrics)
     affected_services = set(incident.metric_effects.keys())
     flow_weights = _flow_weights_for_incident(incident.name)
+    service_clock_skews_ms = {
+        service: random.uniform(-TRACE_SERVICE_CLOCK_SKEW_MAX_MS, TRACE_SERVICE_CLOCK_SKEW_MAX_MS)
+        for service in SERVICES
+    }
 
     spans: List[Span] = []
 
@@ -292,7 +297,9 @@ def generate_traces(
 
                 span_id = uuid.uuid4().hex[:16]
                 current_offset_ms += random.uniform(1.5, 7.5)
-                span_start = base_ts + timedelta(milliseconds=current_offset_ms)
+                span_start = base_ts + timedelta(
+                    milliseconds=current_offset_ms + service_clock_skews_ms[service]
+                )
 
                 trace_spans.append(
                     Span(

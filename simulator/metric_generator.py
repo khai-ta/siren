@@ -1,5 +1,6 @@
 """Metric generation for simulator"""
 
+import math
 import random
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List
@@ -12,6 +13,13 @@ DEFAULT_RECOVERY_MINUTES = 2.0
 BAD_DEPLOY_MIN_ONSET = 20
 BAD_DEPLOY_MAX_ONSET = 40
 PROPAGATION_DELAY_MINUTES_PER_HOP = 0.75  # ~45 seconds per hop
+SERVICE_CLOCK_SKEW_MAX_SECONDS = 0.12
+
+
+def _diurnal_traffic_multiplier(minute_offset: float, duration_minutes: int) -> float:
+    """Simulate a smooth traffic wave across the generated window"""
+    phase = (minute_offset / max(1.0, float(duration_minutes))) * 2.0 * math.pi
+    return 1.0 + (0.16 * math.sin(phase))
 
 
 def _noisy_value(base_value: float) -> float:
@@ -240,14 +248,19 @@ def generate_metrics(
     start_time = datetime.now(timezone.utc) - timedelta(minutes=duration_minutes)
 
     bad_deploy_start_minute = random.randint(BAD_DEPLOY_MIN_ONSET, BAD_DEPLOY_MAX_ONSET)
+    service_clock_skews = {
+        service: random.uniform(-SERVICE_CLOCK_SKEW_MAX_SECONDS, SERVICE_CLOCK_SKEW_MAX_SECONDS)
+        for service in SERVICES
+    }
 
     for tick in range(total_ticks):
         ts = start_time + timedelta(seconds=tick * tick_seconds)
         minute_offset = (tick * tick_seconds) / 60.0
+        traffic_multiplier = _diurnal_traffic_multiplier(minute_offset, duration_minutes)
 
         for service, baseline in SERVICES.items():
             row: Dict[str, float] = {
-                "timestamp": ts.isoformat(),
+                "timestamp": (ts + timedelta(seconds=service_clock_skews[service])).isoformat(),
                 "service": service,
             }
 
@@ -279,6 +292,17 @@ def generate_metrics(
 
             for metric in METRIC_KEYS:
                 base_value = _noisy_value(float(baseline[metric]))
+
+                # Diurnal load signal keeps metrics from looking static over time
+                if metric == "rps":
+                    base_value *= traffic_multiplier
+                elif metric in ("cpu", "memory"):
+                    base_value *= 1.0 + ((traffic_multiplier - 1.0) * 0.45)
+                elif metric in ("latency_p50", "latency_p99"):
+                    # Latency rises with load but does not improve as aggressively on low-load periods
+                    base_value *= 1.0 + (max(0.0, traffic_multiplier - 1.0) * 0.35)
+                elif metric == "error_rate":
+                    base_value *= 1.0 + (max(0.0, traffic_multiplier - 1.0) * 0.25)
 
                 # Use pre-computed error multiplier for error_rate
                 if metric == "error_rate":
