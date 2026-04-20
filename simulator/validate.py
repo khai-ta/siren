@@ -8,13 +8,13 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from statistics import fmean
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from simulator.incidents import INCIDENT_PROFILES, INCIDENT_TYPES, get_incident_profile
+from simulator.incidents import get_incident_profile
 from simulator.topology import SERVICES
 
 BASELINE_WINDOW_MINUTES = 15
@@ -91,7 +91,6 @@ def validate_metrics(csv_path: str) -> bool:
     expected_services = sorted(SERVICES.keys())
     services_ok = observed_services == expected_services
 
-    grouped = _summarize_metric_rows(rows)
     summary_rows = []
     baseline_ok = True
     anomaly_ok = True
