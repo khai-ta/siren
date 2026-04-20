@@ -8,10 +8,9 @@ def reciprocal_rank_fusion(
     k: int = 60,
     top_n: int = 50,
 ) -> List[Dict]:
-    """Each item's score = sum(1 / (k + rank_in_list_i)) across all lists."""
+    """Each item's score = sum(1 / (k + rank_in_list_i)) across all lists"""
     scores: Dict[str, float] = {}
     items: Dict[str, Dict] = {}
-
     for result_list in result_lists:
         for rank, item in enumerate(result_list):
             item_id = item["id"]
