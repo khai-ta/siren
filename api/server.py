@@ -2,14 +2,13 @@
 
 import os
 import statistics
-from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from agent.run import run_investigation
 from evaluation.run_benchmark import run_benchmark
-from investigate import run_investigation
 from retrieval.orchestrator import SirenQueryEngine
 
 app = FastAPI(title="SIREN Retrieval API", version="1.0.0")
@@ -29,13 +28,6 @@ class RetrieveRequest(BaseModel):
 	origin_service: str
 	window_start: str
 	window_end: str
-
-
-class InvestigateRequest(BaseModel):
-	metrics_csv: str = Field(..., description="Path to metrics CSV")
-	top_k: int = Field(default=12, ge=1, le=50)
-	reindex: bool = Field(default=True)
-	use_agent: bool = Field(default=False)
 
 
 class EvaluateRequest(BaseModel):
@@ -88,33 +80,23 @@ def retrieve(payload: RetrieveRequest) -> dict[str, Any]:
 
 
 @app.post("/investigate")
-def investigate(payload: InvestigateRequest) -> dict[str, Any]:
-	metrics_path = Path(payload.metrics_csv)
-	if not metrics_path.exists():
-		raise HTTPException(status_code=404, detail=f"metrics file not found: {payload.metrics_csv}")
-
+def investigate(payload: RetrieveRequest) -> dict[str, Any]:
 	try:
-		result = run_investigation(
-			metrics_path,
-			top_k=payload.top_k,
-			reindex=payload.reindex,
-			use_agent=payload.use_agent,
+		final_state = run_investigation(
+			anomalies=payload.anomalies,
+			origin_service=payload.origin_service,
+			window_start=payload.window_start,
+			window_end=payload.window_end,
 		)
 	except Exception as exc:
 		raise HTTPException(status_code=500, detail=f"investigation failed: {exc}") from exc
 
 	return {
-		"incident_name": result["incident_name"],
-		"origin_service": result["origin_service"],
-		"anomaly_metric": result["anomaly_metric"],
-		"query": result["query"],
-		"report": result["report"],
-		"report_path": str(result["report_path"]),
-		"uncached_latency_ms": result["uncached_latency_ms"],
-		"cached_latency_ms": result["cached_latency_ms"],
-		"retrieved": result["retrieved"],
-		"reasoning_trace": result.get("reasoning_trace", []),
-		"hypothesis_ledger": result.get("hypothesis_ledger", []),
+		"root_cause": final_state["final_root_cause"],
+		"confidence": final_state["final_confidence"],
+		"report": final_state["final_report"],
+		"steps_taken": final_state["current_step"],
+		"tool_history": final_state["tool_history"],
 	}
 
 
