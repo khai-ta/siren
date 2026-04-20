@@ -1,5 +1,5 @@
 anthropic
-pinecone==5.0.0
+pinecone==8.1.2
 openai==1.40.0
 cohere==5.9.0
 neo4j==5.23.0
