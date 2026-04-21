@@ -7,42 +7,42 @@ st.set_page_config(
 )
 
 st.title("Siren")
-st.caption("Autonomous AI Site Reliability Engineer")
+st.caption("Incident investigation assistant")
 
 st.markdown("""
-Siren investigates distributed system incidents autonomously — detecting anomalies, 
-forming hypotheses, gathering evidence, and producing root cause analysis reports.
-
-Use the sidebar to navigate:
-- **Live incident** — run a new investigation
-- **History** — past investigations with feedback
-- **Dependency graph** — interactive 3D topology
-- **Self-improvement** — learning curves and metrics
+Siren helps you quickly diagnose system incidents by analyzing metrics, logs, and traces
+to pinpoint the root cause. Browse past investigations or start a new one from the sidebar.
 """)
 
-# Quick stats
-from feedback.store import FeedbackStore
-from feedback.stats import compute_accuracy_trend
+st.divider()
 
-store = FeedbackStore()
-trend = compute_accuracy_trend(store)
-investigations = store.list_investigations(limit=1000)
+try:
+    from feedback.store import FeedbackStore
+    from feedback.stats import compute_accuracy_trend
 
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.metric("Total investigations", len(investigations))
-with col2:
-    reviewed = [i for i in investigations if i.get("verdict")]
-    st.metric("Reviewed", len(reviewed))
-with col3:
-    if trend:
-        latest = trend[-1]["accuracy"]
-        st.metric("Latest daily accuracy", f"{latest:.0%}")
-    else:
-        st.metric("Latest daily accuracy", "—")
-with col4:
-    if reviewed:
-        overall = sum(1 for i in reviewed if i["verdict"] == "correct") / len(reviewed)
-        st.metric("Overall accuracy", f"{overall:.0%}")
-    else:
-        st.metric("Overall accuracy", "—")
+    store = FeedbackStore()
+    trend = compute_accuracy_trend(store)
+    investigations = store.list_investigations(limit=1000)
+
+    st.subheader("Overview")
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total cases", len(investigations))
+    with col2:
+        reviewed = [i for i in investigations if i.get("verdict")]
+        st.metric("Reviewed", len(reviewed))
+    with col3:
+        if trend:
+            latest = trend[-1]["accuracy"]
+            st.metric("Accuracy (today)", f"{latest:.0%}")
+        else:
+            st.metric("Accuracy (today)", "—")
+    with col4:
+        if reviewed:
+            overall = sum(1 for i in reviewed if i["verdict"] == "correct") / len(reviewed)
+            st.metric("Accuracy (all time)", f"{overall:.0%}")
+        else:
+            st.metric("Accuracy (all time)", "—")
+except Exception as e:
+    st.warning(f"Database unavailable. Start with: `docker-compose up`")
