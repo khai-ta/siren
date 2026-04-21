@@ -19,7 +19,19 @@ load_dotenv(PROJECT_ROOT / ".env")
 from retrieval.indexer import index_incident
 from retrieval.orchestrator import SirenQueryEngine
 from agent.run import run_investigation as _run_agent
-from siren import ANOMALY_SERVICE_ORDER, detect_anomalies
+from feedback.store import FeedbackStore
+from detection import detect
+
+
+ANOMALY_SERVICE_ORDER = {
+    "database": 0,
+    "auth-service": 1,
+    "payment-service": 2,
+    "recommendation-service": 3,
+    "api-gateway": 4,
+    "cache": 5,
+    "message-queue": 6,
+}
 
 
 def _resolve_bundle_paths(metrics_csv: Path) -> tuple[Path, Path, Path, Path, str]:
@@ -94,7 +106,8 @@ def run_investigation(
         raise FileNotFoundError(f"Docs directory not found: {docs_path}")
 
     metrics = _load_metrics(metrics_path)
-    anomalies = detect_anomalies(metrics)
+    anomalies, incident = detect(metrics)
+    incident_type = incident.get("anomaly_type", "compute")
     origin_service, window_start, window_end = _derive_anomaly_window(anomalies)
     incident_id = incident_name
 
@@ -114,13 +127,14 @@ def run_investigation(
             traces_csv=str(traces_path) if traces_path else None,
         )
 
-    print(f"Starting agent investigation: {incident_id}")
+    print(f"Starting agent investigation: {incident_id} (type: {incident_type})")
     agent_state = _run_agent(
         anomalies=anomalies,
         origin_service=origin_service,
         window_start=window_start,
         window_end=window_end,
         incident_id=incident_id,
+        incident_type=incident_type,
     )
 
     report = agent_state.get("final_report") or ""
@@ -129,6 +143,12 @@ def run_investigation(
     report_dir.mkdir(parents=True, exist_ok=True)
     report_path = report_dir / f"{timestamp}_{incident_name}_agent.md"
     report_path.write_text(report, encoding="utf-8")
+
+    try:
+        feedback_store = FeedbackStore()
+        feedback_store.save_investigation(agent_state, incident_type)
+    except Exception as e:
+        print(f"Warning: Could not save investigation to feedback store: {e}")
 
     return {
         "incident_id": incident_id,

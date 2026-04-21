@@ -28,6 +28,7 @@ class InvestigationState(TypedDict):
     origin_service: str
     window_start: str
     window_end: str
+    incident_type: str
 
     # Agent working memory
     investigation_plan: list[str]
