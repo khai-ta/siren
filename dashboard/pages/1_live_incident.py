@@ -9,7 +9,7 @@ from dashboard.components.graph_3d import render_dependency_graph
 from dashboard.components.metrics_chart import render_multi_service_comparison
 from dashboard.components.reasoning_trace import render_reasoning_trace, render_hypothesis_ledger
 from dashboard.components.feedback_form import render_feedback_form
-from siren_v1 import detect_anomalies
+from siren import detect_anomalies
 
 
 st.title("Live incident investigation")
@@ -38,8 +38,8 @@ if st.button("Run investigation", type="primary"):
         
         # Detect anomalies
         st.write("Detecting anomalies...")
-        from siren_v1 import generate_metrics
-        metrics = _load_metrics_from_csv(selected)
+        import pandas as pd
+        metrics = pd.read_csv(selected)
         anomalies = detect_anomalies(metrics)
         st.write(f"   Found {len(anomalies)} anomalies")
         
