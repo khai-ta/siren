@@ -1,74 +1,89 @@
-from collections import defaultdict
-from typing import Dict, Tuple
-import psycopg2
-from psycopg2.extras import RealDictCursor
-import os
+import dspy
+from .store import FeedbackStore
 
-from feedback.store import FeedbackStore
+
+class RootCauseSignature(dspy.Signature):
+    """Given incident context, predict the most likely root cause service"""
+    incident_summary = dspy.InputField(desc="Anomaly data and affected services")
+    retrieved_evidence = dspy.InputField(desc="Evidence from retrieval tools")
+    root_cause = dspy.OutputField(desc="The name of the root cause service")
+
+
+class RootCausePredictor(dspy.Module):
+    """DSPy module that learns from feedback to predict root causes"""
+
+    def __init__(self):
+        super().__init__()
+        self.predictor = dspy.ChainOfThought(RootCauseSignature)
+
+    def forward(self, incident_summary, retrieved_evidence):
+        return self.predictor(
+            incident_summary=incident_summary,
+            retrieved_evidence=retrieved_evidence,
+        )
 
 
 class RetrievalOptimizer:
-    """DSPy-powered retrieval weight optimizer
+    """Reweights retrieval sources based on which ones led to correct investigations"""
 
-    Learns from engineer feedback to reweight which retrieval sources
-    are most effective for each incident type
-    """
-    
     def __init__(self, store: FeedbackStore):
         self.store = store
-        self.conn = psycopg2.connect(os.getenv("FEEDBACK_URI"))
-    
-    def recompute_weights(self) -> Dict[Tuple[str, str], float]:
-        """Analyze feedback and compute new retrieval weights
 
-        Returns: dict of {(source, incident_type): weight}
+    def recompute_weights(self, min_samples: int = 5) -> dict[tuple[str, str], float]:
+        """Look at all investigations with feedback, adjust source weights
 
-        This is a stub for Slice 5B. The full implementation will:
-        1. Extract which retrieval sources were used for each investigation
-        2. Compare them against engineer feedback (correct/incorrect)
-        3. Use DSPy to reweight sources that correlate with correct diagnoses
-        4. Store weights in retrieval_weights table
+        For each (source, incident_type) pair:
+          weight = (correct investigations using this source) / (total using this source)
+
+        Sources that consistently appear in correct investigations get boosted
+        Sources in wrong investigations get attenuated
         """
-        # Placeholder: equal weights for all sources
-        sources = ["pinecone-logs", "pinecone-traces", "pinecone-metrics", "neo4j-graph"]
-        incident_types = ["latency_spike", "error_rate_increase", "network_spike"]
-        
-        weights = {}
-        for source in sources:
-            for incident_type in incident_types:
-                weights[(source, incident_type)] = 1.0
-                self._save_weight(source, incident_type, 1.0)
-        
-        return weights
-    
-    def _save_weight(self, source: str, incident_type: str, weight: float) -> None:
-        """Save weight to database"""
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO retrieval_weights (source, incident_type, weight)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (source, incident_type) DO UPDATE SET
-                  weight = EXCLUDED.weight,
-                  updated_at = NOW()
-                """,
-                (source, incident_type, weight),
-            )
-        self.conn.commit()
-    
-    def get_weights(self, incident_type: str = None) -> Dict[Tuple[str, str], float]:
-        """Retrieve current weights from database"""
-        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
-            if incident_type:
-                cur.execute(
-                    "SELECT source, incident_type, weight FROM retrieval_weights WHERE incident_type = %s",
-                    (incident_type,),
-                )
-            else:
-                cur.execute("SELECT source, incident_type, weight FROM retrieval_weights")
-            
-            weights = {}
-            for row in cur.fetchall():
-                key = (row["source"], row["incident_type"])
-                weights[key] = row["weight"]
-            return weights
+        investigations = self.store.list_investigations(limit=1000)
+
+        # Tally: (source, incident_type) -> {correct, total}
+        tally = {}
+        for inv in investigations:
+            if not inv.get("verdict"):
+                continue
+
+            incident_type = inv["incident_type"]
+            is_correct = inv["verdict"] == "correct"
+
+            for tool_call in inv.get("tool_history", []):
+                source = tool_call["tool_name"]
+                key = (source, incident_type)
+                if key not in tally:
+                    tally[key] = {"correct": 0, "total": 0}
+                tally[key]["total"] += 1
+                if is_correct:
+                    tally[key]["correct"] += 1
+
+        # Compute weights with Laplace smoothing
+        new_weights = {}
+        for (source, incident_type), counts in tally.items():
+            if counts["total"] < min_samples:
+                continue
+
+            # Smoothed success rate, centered at 1.0
+            # +1 / +2 = Laplace smoothing for small samples
+            success_rate = (counts["correct"] + 1) / (counts["total"] + 2)
+            # Scale: 0.5 raw success → weight 1.0, 1.0 → weight 1.5, 0.0 → weight 0.5
+            weight = 0.5 + success_rate
+
+            new_weights[(source, incident_type)] = weight
+            self.store.update_retrieval_weight(source, incident_type, weight)
+
+        return new_weights
+
+    def apply_weights_to_query(
+        self,
+        candidates: list[dict],
+        source: str,
+        incident_type: str,
+    ) -> list[dict]:
+        """Boost or attenuate candidate scores based on learned weights"""
+        weight = self.store.get_retrieval_weight(source, incident_type)
+        return [
+            {**c, "score": c["score"] * weight, "weight_applied": weight}
+            for c in candidates
+        ]
