@@ -1,10 +1,10 @@
-# SIREN — Autonomous Incident Investigation
+# SIREN: Autonomous Incident Investigation
 
 Autonomous root cause analysis for distributed systems. SIREN detects anomalies in real-time metrics, investigates using multi-modal retrieval, and optimizes investigation quality through feedback-driven learning.
 
 ## Problem
 
-Incident response is manual and inconsistent: engineers must correlate metrics across multiple systems, search logs, check dependencies, and construct RCAs—often under time pressure with incomplete context. This scales poorly and produces unreliable conclusions.
+Incident response is manual and inconsistent: engineers must correlate metrics across multiple systems, search logs, check dependencies, and construct RCAs often under time pressure with incomplete context. This scales poorly and produces unreliable conclusions.
 
 SIREN automates this workflow: detect anomalies, investigate systematically using all available data sources, and learn from engineer feedback to improve future investigations.
 
@@ -405,7 +405,8 @@ for day in trend[-7:]:  # Last 7 days
 
 | Document | Purpose |
 |----------|---------|
-| [SETUP.md](docs/SETUP.md) | Backend setup, Docker/Kubernetes deployment, troubleshooting |
-| [API_REFERENCE.md](docs/API_REFERENCE.md) | All APIs, design decisions, algorithms, examples, workflows |
+| [SETUP.md](docs/SETUP.md) | Backend setup, Docker/Kubernetes deployment |
+| [API_REFERENCE.md](docs/API_REFERENCE.md) | Function signatures, examples, workflows, troubleshooting |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, algorithms, data models, performance analysis |
 
 Example incidents in `data/incidents/` for testing.
