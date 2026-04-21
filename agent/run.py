@@ -51,6 +51,7 @@ def run_investigation(
     window_start: str,
     window_end: str,
     incident_id: str | None = None,
+    incident_type: str = "compute",
     max_steps: int = 15,
 ) -> dict[str, Any]:
     """Run a full agent investigation and return the final state"""
@@ -62,6 +63,7 @@ def run_investigation(
         "origin_service": origin_service,
         "window_start": window_start,
         "window_end": window_end,
+        "incident_type": incident_type,
         "investigation_plan": [],
         "current_step": 0,
         "hypotheses": [],
