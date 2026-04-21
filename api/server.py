@@ -10,9 +10,11 @@ from pydantic import BaseModel, Field
 from agent.run import run_investigation
 from evaluation.run_benchmark import run_benchmark
 from retrieval.orchestrator import SirenQueryEngine
+from feedback.store import FeedbackStore
 
 app = FastAPI(title="SIREN Retrieval API", version="1.0.0")
 _engine: SirenQueryEngine | None = None
+_store = FeedbackStore()
 
 
 def _get_engine() -> SirenQueryEngine:
@@ -32,6 +34,13 @@ class RetrieveRequest(BaseModel):
 
 class EvaluateRequest(BaseModel):
 	seed: int = Field(default=7, ge=0)
+
+
+class FeedbackRequest(BaseModel):
+	incident_id: str
+	verdict: str
+	correct_root_cause: str | None = None
+	engineer_notes: str | None = None
 
 
 def _summarize_scores(results: list[dict[str, Any]]) -> dict[str, float]:
@@ -112,3 +121,19 @@ def evaluate(payload: EvaluateRequest) -> dict[str, Any]:
 		"results": results,
 		"averages": _summarize_scores(results),
 	}
+
+
+@app.post("/feedback")
+def submit_feedback(req: FeedbackRequest) -> dict[str, Any]:
+	_store.save_feedback(
+		incident_id=req.incident_id,
+		verdict=req.verdict,
+		correct_root_cause=req.correct_root_cause,
+		engineer_notes=req.engineer_notes,
+	)
+	return {"status": "ok"}
+
+
+@app.get("/investigations")
+def list_investigations(limit: int = 50) -> list[dict[str, Any]]:
+	return _store.list_investigations(limit=limit)
