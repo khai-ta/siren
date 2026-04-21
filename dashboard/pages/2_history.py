@@ -1,11 +1,18 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 import streamlit as st
 import pandas as pd
 from feedback.store import FeedbackStore
 
 st.title("Past investigations")
 
-store = FeedbackStore()
-investigations = store.list_investigations(limit=500)
+try:
+    store = FeedbackStore()
+    investigations = store.list_investigations(limit=500)
+except Exception as e:
+    st.error("Cannot connect to database. Make sure PostgreSQL is running.")
+    st.stop()
 
 if not investigations:
     st.info("No past investigations. Start a new one from Investigate an incident.")
