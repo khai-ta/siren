@@ -20,8 +20,18 @@ from retrieval.indexer import index_incident
 from retrieval.orchestrator import SirenQueryEngine
 from agent.run import run_investigation as _run_agent
 from feedback.store import FeedbackStore
-from siren import ANOMALY_SERVICE_ORDER
 from detection import detect
+
+
+ANOMALY_SERVICE_ORDER = {
+    "database": 0,
+    "auth-service": 1,
+    "payment-service": 2,
+    "recommendation-service": 3,
+    "api-gateway": 4,
+    "cache": 5,
+    "message-queue": 6,
+}
 
 
 def _resolve_bundle_paths(metrics_csv: Path) -> tuple[Path, Path, Path, Path, str]:

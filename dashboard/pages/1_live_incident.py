@@ -11,18 +11,11 @@ from dashboard.components.graph_3d import render_dependency_graph
 from dashboard.components.metrics_chart import render_multi_service_comparison
 from dashboard.components.reasoning_trace import render_reasoning_trace, render_hypothesis_ledger
 from dashboard.components.feedback_form import render_feedback_form
-from siren import detect_anomalies
+from detection import detect
+from agent.run import run_investigation
 
 
 st.title("Investigate an incident")
-
-# Check dependencies
-try:
-    from siren import detect_anomalies
-    from agent.run import run_investigation
-except ImportError:
-    st.error("Missing required modules. Check installation.")
-    st.stop()
 
 # Pick a CSV from the simulator outputs
 metrics_files = sorted(Path("data/metrics").glob("*.csv"), reverse=True)
@@ -50,8 +43,8 @@ if st.button("Start investigation", type="primary"):
             import pandas as pd
             df = pd.read_csv(selected)
             metrics = df.to_dict('records')
-            anomalies = detect_anomalies(metrics)
-            st.write(f"Detected {len(anomalies)} anomalies")
+            anomalies, incident = detect(metrics)
+            st.write(f"Detected {len(anomalies)} anomalies (type: {incident['anomaly_type']})")
 
             st.write("Analyzing root cause...")
 
