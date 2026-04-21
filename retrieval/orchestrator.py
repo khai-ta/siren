@@ -79,21 +79,43 @@ class SirenQueryEngine:
         window_end: str,
         incident_type: Optional[str] = None,
     ) -> Dict[str, Any]:
+        from datetime import datetime, timedelta
+
+        def resolve_timestamp(ts):
+            if isinstance(ts, str):
+                if ts == "now":
+                    return datetime.utcnow().timestamp()
+                if ts.startswith("now-"):
+                    if ts.endswith("m"):
+                        mins = int(ts[4:-1])
+                        return (datetime.utcnow() - timedelta(minutes=mins)).timestamp()
+                    elif ts.endswith("h"):
+                        hours = int(ts[4:-1])
+                        return (datetime.utcnow() - timedelta(hours=hours)).timestamp()
+                try:
+                    return datetime.fromisoformat(ts.replace('Z', '+00:00')).timestamp()
+                except ValueError:
+                    return float(ts)
+            return ts
+
+        window_start_resolved = resolve_timestamp(window_start)
+        window_end_resolved = resolve_timestamp(window_end)
+
         cached = self.cache.get("retrieve", query, origin_service, window_start, window_end)
         if cached is not None:
             return cached
 
         log_candidates = self._search_logs_with_window(
             query=query,
-            window_start=window_start,
-            window_end=window_end,
+            window_start=window_start_resolved,
+            window_end=window_end_resolved,
             source="log",
             top_k=50,
         )
         trace_candidates = self._search_logs_with_window(
             query=query,
-            window_start=window_start,
-            window_end=window_end,
+            window_start=window_start_resolved,
+            window_end=window_end_resolved,
             source="trace",
             top_k=30,
         )
@@ -114,27 +136,10 @@ class SirenQueryEngine:
 
         affected = [origin_service] + blast_radius
         metrics_summary: Dict[str, Dict[str, Any]] = {}
-        from datetime import datetime, timedelta
-        def resolve_timestamp(ts):
-            if isinstance(ts, str):
-                if ts == "now":
-                    return datetime.utcnow().isoformat()
-                if ts.startswith("now-"):
-                    if ts.endswith("m"):
-                        mins = int(ts[4:-1])
-                        return (datetime.utcnow() - timedelta(minutes=mins)).isoformat()
-                    elif ts.endswith("h"):
-                        hours = int(ts[4:-1])
-                        return (datetime.utcnow() - timedelta(hours=hours)).isoformat()
-            return ts
-
-        baseline_end = resolve_timestamp(window_start)
-        window_start_res = resolve_timestamp(window_start)
-        window_end_res = resolve_timestamp(window_end)
         for service in affected:
             metrics_summary[service] = {
-                "baseline": self.metrics.get_baseline(service, baseline_end),
-                "peak": self.metrics.get_peak(service, window_start_res, window_end_res),
+                "baseline": self.metrics.get_baseline(service, window_start_resolved),
+                "peak": self.metrics.get_peak(service, window_start_resolved, window_end_resolved),
             }
 
         result: Dict[str, Any] = {

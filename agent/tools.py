@@ -67,12 +67,32 @@ def query_logs(
     top_k: int = 10,
 ) -> list[dict[str, Any]]:
     """Search logs for a service in a time window"""
+    from datetime import datetime, timedelta
+    def resolve_timestamp(ts):
+        if isinstance(ts, str):
+            if ts == "now":
+                return datetime.utcnow().timestamp()
+            if ts.startswith("now-"):
+                if ts.endswith("m"):
+                    mins = int(ts[4:-1])
+                    return (datetime.utcnow() - timedelta(minutes=mins)).timestamp()
+                elif ts.endswith("h"):
+                    hours = int(ts[4:-1])
+                    return (datetime.utcnow() - timedelta(hours=hours)).timestamp()
+            try:
+                return datetime.fromisoformat(ts.replace('Z', '+00:00')).timestamp()
+            except ValueError:
+                return float(ts)
+        return ts
+
+    window_start_res = resolve_timestamp(window_start)
+    window_end_res = resolve_timestamp(window_end)
     candidates = _engine.logs_store.search(
         query=query,
         top_k=50,
         filter={
             "service": service,
-            "timestamp": {"$gte": window_start, "$lte": window_end},
+            "timestamp": {"$gte": window_start_res, "$lte": window_end_res},
         },
     )
     return _engine.reranker.rerank(query, candidates, top_n=top_k)
@@ -86,27 +106,28 @@ def get_metrics(
     window_end: str,
 ) -> dict[str, Any]:
     """Get baseline and peak metrics for a service"""
-    # Convert relative window_start if needed
     from datetime import datetime, timedelta
     def resolve_timestamp(ts):
         if isinstance(ts, str):
             if ts == "now":
-                return datetime.utcnow().isoformat()
+                return datetime.utcnow().timestamp()
             if ts.startswith("now-"):
-                # Only supports minutes (e.g., now-30m)
                 if ts.endswith("m"):
                     mins = int(ts[4:-1])
-                    return (datetime.utcnow() - timedelta(minutes=mins)).isoformat()
+                    return (datetime.utcnow() - timedelta(minutes=mins)).timestamp()
                 elif ts.endswith("h"):
                     hours = int(ts[4:-1])
-                    return (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+                    return (datetime.utcnow() - timedelta(hours=hours)).timestamp()
+            try:
+                return datetime.fromisoformat(ts.replace('Z', '+00:00')).timestamp()
+            except ValueError:
+                return float(ts)
         return ts
 
-    baseline_end = resolve_timestamp(window_start)
     window_start_res = resolve_timestamp(window_start)
     window_end_res = resolve_timestamp(window_end)
     return {
-        "baseline": _engine.metrics.get_baseline(service, baseline_end),
+        "baseline": _engine.metrics.get_baseline(service, window_start_res),
         "peak": _engine.metrics.get_peak(service, window_start_res, window_end_res),
     }
 
