@@ -97,3 +97,24 @@ class FeedbackStore:
                 (incident_id,),
             )
             return cur.fetchone()
+
+    def get_retrieval_weight(self, source: str, incident_type: str) -> float:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT weight FROM retrieval_weights WHERE source = %s AND incident_type = %s",
+                (source, incident_type),
+            )
+            row = cur.fetchone()
+            return row[0] if row else 1.0
+
+    def update_retrieval_weight(self, source: str, incident_type: str, weight: float) -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO retrieval_weights (source, incident_type, weight)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (source, incident_type) DO UPDATE
+                SET weight = EXCLUDED.weight, updated_at = NOW()
+                """,
+                (source, incident_type, weight),
+            )
