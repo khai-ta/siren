@@ -21,7 +21,7 @@ store = FeedbackStore()
 
 # Accuracy trend
 st.subheader("Accuracy over time")
-trend = compute_accuracy_trend(store, days=30)
+trend = compute_accuracy_trend(store)
 if trend:
     df = pd.DataFrame(trend)
     chart = alt.Chart(df).mark_line(point=True).encode(
