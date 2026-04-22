@@ -2,7 +2,7 @@
 
 def render_kpi_strip(metrics: list[dict]) -> str:
     """
-    Render a 4-cell KPI strip with separators.
+    Render a KPI strip with evenly-spaced cells.
 
     Args:
         metrics: list of dicts with keys:
@@ -14,7 +14,8 @@ def render_kpi_strip(metrics: list[dict]) -> str:
     Returns:
         HTML string
     """
-    html = '<div class="kpi-strip">'
+    cols = min(len(metrics), 4)
+    html = f'<div class="kpi-strip" style="grid-template-columns: repeat({cols}, 1fr) !important;">'
     for metric in metrics[:4]:  # Limit to 4 cells
         delta_html = ""
         if metric.get("delta"):
