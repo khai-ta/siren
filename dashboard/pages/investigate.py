@@ -22,14 +22,16 @@ from simulator.topology import DEPENDENCIES
 inject_styles()
 
 st.title("Investigate incident")
+st.caption("Analyze metrics, logs, and traces to find root cause")
 
 metrics_files = sorted(Path("data/metrics").glob("*.csv"), reverse=True)
 if not metrics_files:
     st.warning("No incidents available. Run: `python simulator/run.py`")
     st.stop()
 
+st.write("**Select an incident to analyze:**")
 selected = st.selectbox(
-    "Select incident:",
+    "Incident",
     metrics_files,
     format_func=lambda p: p.name.replace(".csv", ""),
     label_visibility="collapsed",

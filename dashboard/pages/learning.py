@@ -18,6 +18,7 @@ from feedback.optimizer import RetrievalOptimizer
 inject_styles()
 
 st.title("Learning & optimization")
+st.caption("System performance and improvement")
 
 store = FeedbackStore()
 
@@ -63,30 +64,33 @@ if sources:
 else:
     st.info("Collecting data...")
 
-# Retrain
+# Retrain section
 st.divider()
-st.subheader("Retrain retrieval")
+st.subheader("Optimization")
 
 if "confirm_retrain" not in st.session_state:
     st.session_state.confirm_retrain = False
 
 if not st.session_state.confirm_retrain:
-    if st.button("Recompute weights", type="primary"):
+    st.caption("Recompute retrieval weights based on feedback")
+    if st.button("Recompute weights", type="primary", use_container_width=False):
         st.session_state.confirm_retrain = True
         st.rerun()
 else:
-    st.warning("Update retrieval weights from feedback?")
-    col1, col2 = st.columns(2)
+    st.warning("⚠️ This will update retrieval weights. Confirm?")
+
+    col1, col2 = st.columns([1, 1])
     with col1:
-        if st.button("Confirm"):
+        if st.button("Confirm", key="confirm_retrain_btn"):
             try:
                 optimizer = RetrievalOptimizer(store)
                 weights = optimizer.recompute_weights()
                 st.success(f"Updated {len(weights)} weights")
                 st.session_state.confirm_retrain = False
+                st.rerun()
             except Exception as e:
                 st.error(str(e))
     with col2:
-        if st.button("Cancel"):
+        if st.button("Cancel", key="cancel_retrain_btn"):
             st.session_state.confirm_retrain = False
             st.rerun()

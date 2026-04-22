@@ -15,6 +15,7 @@ from feedback.store import FeedbackStore
 inject_styles()
 
 st.title("Investigation history")
+st.caption("Browse past cases and review feedback")
 
 try:
     store = FeedbackStore()
@@ -27,7 +28,8 @@ if not investigations:
     st.info("No investigations yet.")
     st.stop()
 
-# Filter
+# Filters
+st.write("**Filter results:**")
 col1, col2 = st.columns(2)
 with col1:
     type_filter = st.multiselect(

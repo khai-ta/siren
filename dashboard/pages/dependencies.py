@@ -12,9 +12,11 @@ from simulator.topology import SERVICES, DEPENDENCIES
 inject_styles()
 
 st.title("Service dependencies")
+st.caption("View service topology and SLA baselines")
 
+st.write("**Select a service:**")
 selected = st.selectbox(
-    "Select service:",
+    "Service",
     list(SERVICES.keys()),
     label_visibility="collapsed",
 )

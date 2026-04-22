@@ -22,6 +22,11 @@ inject_styles()
 st.title("Siren")
 st.caption("Incident investigation assistant")
 
+st.markdown(
+    "Recent investigations and system accuracy. Go to **Investigate** to start a new case.",
+    unsafe_allow_html=True
+)
+
 try:
     from feedback.store import FeedbackStore
     from feedback.stats import compute_accuracy_trend
