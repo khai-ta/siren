@@ -89,34 +89,29 @@ try:
 
     st.html(render_kpi_strip(kpi_metrics))
 
-    # Accuracy sparkline
-    if trend:
+    # Accuracy trend
+    if trend and len(trend) > 0:
         st.subheader("Accuracy trend")
-        df_trend = []
-        for item in trend:
-            df_trend.append({
-                "date": item["date"],
-                "accuracy": item["accuracy"],
-                "sample": item.get("sample_size", 0),
-            })
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(
-            x=[t["date"] for t in df_trend],
-            y=[t["accuracy"] for t in df_trend],
-            mode="lines",
+            x=[t["date"] for t in trend],
+            y=[t["accuracy"] for t in trend],
+            mode="lines+markers",
             name="Accuracy",
             line=dict(color="#E84545", width=2),
+            marker=dict(size=8, color="#E84545", line=dict(color="#0A0A0C", width=2)),
             hovertemplate="<b>%{x}</b><br>Accuracy: %{y:.0%}<extra></extra>",
         ))
         fig.update_layout(
-            height=160,
+            height=200,
             margin=dict(l=40, r=20, t=0, b=40),
             paper_bgcolor="#0A0A0C",
             plot_bgcolor="#0A0A0C",
-            xaxis=dict(showgrid=False, showline=False, zeroline=False),
+            xaxis=dict(showgrid=False, showline=False, zeroline=False, tickformat="%Y-%m-%d"),
             yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)", range=[0, 1]),
             hovermode="x unified",
+            showlegend=False,
         )
         st.plotly_chart(fig, use_container_width=True)
 
