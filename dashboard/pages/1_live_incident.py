@@ -11,6 +11,8 @@ import streamlit as st
 from retrieval.indexer import index_incident
 from retrieval.orchestrator import SirenQueryEngine
 from feedback.store import FeedbackStore
+from dashboard.components.styles import inject_styles
+from dashboard.components.ui_utils import render_progress_steps
 from dashboard.components.graph_3d import render_dependency_graph
 from dashboard.components.metrics_chart import render_multi_service_comparison
 from dashboard.components.reasoning_trace import render_reasoning_trace, render_hypothesis_ledger
@@ -18,6 +20,7 @@ from dashboard.components.feedback_form import render_feedback_form
 from detection import detect
 from agent.run import run_investigation
 
+inject_styles()
 
 st.title("Investigate an incident")
 
@@ -35,7 +38,21 @@ selected = st.selectbox(
 
 if st.button("Start investigation", type="primary"):
     try:
+        # Progress tracking
+        if "investigation_step" not in st.session_state:
+            st.session_state.investigation_step = -1
+
+        # Progress strip placeholder
+        progress_placeholder = st.empty()
+
         with st.status("Analyzing incident...", expanded=True) as status:
+            # Step 0: Gather
+            st.session_state.investigation_step = 0
+            progress_placeholder.html(render_progress_steps(
+                ["Gather", "Detect", "Retrieve", "Analyze", "Conclude"],
+                st.session_state.investigation_step,
+            ))
+
             st.write("Gathering telemetry...")
             engine = SirenQueryEngine()
             logs_path = selected.parent.parent / "logs" / selected.name
@@ -43,12 +60,33 @@ if st.button("Start investigation", type="primary"):
             counts = index_incident(str(selected), str(logs_path), "docs", engine, str(traces_path))
             st.write(f"Found {counts['logs']} log entries and {counts['metrics']} data points")
 
+            # Step 1: Detect
+            st.session_state.investigation_step = 1
+            progress_placeholder.html(render_progress_steps(
+                ["Gather", "Detect", "Retrieve", "Analyze", "Conclude"],
+                st.session_state.investigation_step,
+            ))
+
             st.write("Looking for anomalies...")
             import pandas as pd
             df = pd.read_csv(selected)
             metrics = df.to_dict('records')
             anomalies, incident = detect(metrics)
             st.write(f"Detected {len(anomalies)} anomalies (type: {incident['anomaly_type']})")
+
+            # Step 2: Retrieve (skipped in demo, but shown as in progress)
+            st.session_state.investigation_step = 2
+            progress_placeholder.html(render_progress_steps(
+                ["Gather", "Detect", "Retrieve", "Analyze", "Conclude"],
+                st.session_state.investigation_step,
+            ))
+
+            # Step 3: Analyze
+            st.session_state.investigation_step = 3
+            progress_placeholder.html(render_progress_steps(
+                ["Gather", "Detect", "Retrieve", "Analyze", "Conclude"],
+                st.session_state.investigation_step,
+            ))
 
             st.write("Analyzing root cause...")
 
@@ -87,6 +125,13 @@ The {origin} service shows degradation across multiple metrics, propagating to d
                     {"statement": f"{origin} degradation", "status": "confirmed", "confidence": 0.85, "evidence_for": [1, 2, 3], "evidence_against": []},
                 ],
             }
+
+            # Step 4: Conclude
+            st.session_state.investigation_step = 4
+            progress_placeholder.html(render_progress_steps(
+                ["Gather", "Detect", "Retrieve", "Analyze", "Conclude"],
+                st.session_state.investigation_step,
+            ))
 
             incident_type = selected.stem.split("_")[0]
             store = FeedbackStore()

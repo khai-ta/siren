@@ -58,23 +58,33 @@ def render_dependency_graph(
     )
     
     # Build node trace
-    node_x, node_y, node_z, node_colors, node_texts, node_sizes = [], [], [], [], [], []
+    node_x, node_y, node_z, node_colors, node_texts, node_sizes, node_hover = [], [], [], [], [], [], []
     for svc, pos in positions.items():
         node_x.append(pos[0])
         node_y.append(pos[1])
         node_z.append(pos[2])
-        
+
         if svc == origin_service:
             color, size = "#E24B4A", 30  # red, large
         elif svc in affected_services:
             color, size = "#EF9F27", 22  # orange
         else:
             color, size = "#4CAF50", 16  # green
-        
+
         node_colors.append(color)
         node_sizes.append(size)
         node_texts.append(svc)
-    
+
+        # Build hover text with SLA stats
+        svc_stats = SERVICES.get(svc, {})
+        hover_text = f"<b>{svc}</b><br>"
+        hover_text += f"RPS: {svc_stats.get('rps', '—')}<br>"
+        hover_text += f"Error rate: {svc_stats.get('error_rate', 0):.3%}<br>"
+        hover_text += f"Latency p99: {svc_stats.get('latency_p99', '—')}ms<br>"
+        hover_text += f"CPU: {svc_stats.get('cpu', '—')}%<br>"
+        hover_text += f"Memory: {svc_stats.get('memory', '—')}%"
+        node_hover.append(hover_text)
+
     node_trace = go.Scatter3d(
         x=node_x, y=node_y, z=node_z,
         mode="markers+text",
@@ -82,7 +92,8 @@ def render_dependency_graph(
         text=node_texts,
         textposition="top center",
         textfont=dict(size=12),
-        hovertemplate="<b>%{text}</b><extra></extra>",
+        customdata=node_hover,
+        hovertemplate="%{customdata}<extra></extra>",
         showlegend=False,
     )
     
@@ -90,6 +101,8 @@ def render_dependency_graph(
     fig.update_layout(
         showlegend=False,
         margin=dict(l=0, r=0, t=0, b=0),
+        paper_bgcolor="#0A0A0C",
+        plot_bgcolor="#0A0A0C",
         scene=dict(
             xaxis=dict(visible=False),
             yaxis=dict(visible=False),

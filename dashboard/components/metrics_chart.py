@@ -13,12 +13,20 @@ def render_metric_timeline(
     store = TimescaleStore()
     rows = store.query_window(service, window_start, window_end)
     df = pd.DataFrame(rows)
-    
+
     fig = px.line(
         df, x="timestamp", y=metric,
         title=f"{service} — {metric}",
     )
-    fig.update_layout(height=300, margin=dict(l=40, r=20, t=40, b=40))
+    fig.update_layout(
+        height=300,
+        margin=dict(l=40, r=20, t=40, b=40),
+        paper_bgcolor="#0A0A0C",
+        plot_bgcolor="#0A0A0C",
+        xaxis=dict(showgrid=False),
+        yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)"),
+    )
+    fig.update_traces(line=dict(color="#E84545"))
     return fig
 
 
@@ -35,11 +43,17 @@ def render_multi_service_comparison(
         df = pd.DataFrame(rows)
         df["service"] = service
         dfs.append(df)
-    
+
     combined = pd.concat(dfs, ignore_index=True)
     fig = px.line(
         combined, x="timestamp", y=metric, color="service",
         title=f"{metric} across affected services",
     )
-    fig.update_layout(height=400)
+    fig.update_layout(
+        height=400,
+        paper_bgcolor="#0A0A0C",
+        plot_bgcolor="#0A0A0C",
+        xaxis=dict(showgrid=False),
+        yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)"),
+    )
     return fig
