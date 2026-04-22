@@ -53,11 +53,15 @@ if st.button("Analyze", type="primary"):
             origin = anomalies[0]["service"]
             affected = sorted(set(a["service"] for a in anomalies))
 
+            # Calculate confidence based on anomalies
+            avg_zscore = sum(abs(a.get("zscore", 0)) for a in anomalies) / len(anomalies) if anomalies else 0
+            confidence = min(0.95, 0.5 + (avg_zscore / 10))
+
             # Store results
             final_state = {
                 "incident_id": selected.stem,
                 "final_root_cause": origin,
-                "final_confidence": 0.85,
+                "final_confidence": confidence,
                 "current_step": 5,
                 "steps_taken": 5,
                 "window_start": anomalies[0]["timestamp"],
