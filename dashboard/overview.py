@@ -15,7 +15,7 @@ st.set_page_config(
 )
 
 from dashboard.components.styles import inject_styles
-from dashboard.components.ui_utils import render_kpi_strip, render_status_dot, render_data_table
+from dashboard.components.ui_utils import render_kpi_strip, render_status_dot, render_data_table, render_status_badge
 from detection import detect
 
 inject_styles()
@@ -66,13 +66,13 @@ try:
             date_str,
             inv_type,
             f"{inv.get('reported_confidence', 0):.0%}",
-            f"{render_status_dot(verdict)} {verdict or 'pending'}",
+            render_status_badge(verdict),
         ])
 
     st.html(render_data_table(
         ["Date", "Type", "Confidence", "Verdict"],
         rows,
-        classes=["", "", "col-data", "col-muted"],
+        classes=["", "", "col-data", ""],
     ))
 
 except Exception as e:

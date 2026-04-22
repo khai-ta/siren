@@ -117,10 +117,65 @@ body, .stApp {
   color: var(--text);
 }
 
-.data-table tr:hover td { background: rgba(255, 255, 255, 0.02); }
+.data-table tr:hover td { background: rgba(255, 255, 255, 0.04); }
+
+.data-table tbody tr[data-row-index] {
+  transition: background-color 0.15s ease;
+}
+
+.data-table tbody tr[data-row-index]:hover {
+  background-color: rgba(255, 255, 255, 0.06) !important;
+  cursor: pointer;
+}
+
+/* Severity row colors */
+.severity-critical td { background-color: rgba(232, 69, 69, 0.08); border-left: 3px solid var(--accent); }
+.severity-critical td:first-child { border-left: 3px solid var(--accent); }
+.severity-high td { background-color: rgba(232, 69, 69, 0.05); border-left: 3px solid rgba(232, 69, 69, 0.6); }
+.severity-high td:first-child { border-left: 3px solid rgba(232, 69, 69, 0.6); }
+.severity-medium td { background-color: rgba(107, 114, 128, 0.05); border-left: 3px solid rgba(107, 114, 128, 0.4); }
+.severity-medium td:first-child { border-left: 3px solid rgba(107, 114, 128, 0.4); }
+.severity-low td { background-color: transparent; border-left: 3px solid rgba(255, 255, 255, 0.08); }
+.severity-low td:first-child { border-left: 3px solid rgba(255, 255, 255, 0.08); }
 
 .col-data { font-family: var(--font-data); }
 .col-muted { color: var(--text-muted); }
+
+/* Status badges */
+.badge {
+  display: inline-block;
+  padding: 0.25rem 0.625rem;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.badge-correct {
+  background: rgba(228, 228, 231, 0.1);
+  color: var(--text);
+  border: 1px solid rgba(228, 228, 231, 0.3);
+}
+
+.badge-incorrect {
+  background: rgba(232, 69, 69, 0.15);
+  color: var(--accent);
+  border: 1px solid rgba(232, 69, 69, 0.4);
+}
+
+.badge-partial {
+  background: rgba(113, 113, 122, 0.15);
+  color: var(--text-muted);
+  border: 1px solid rgba(113, 113, 122, 0.4);
+}
+
+.badge-pending {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
 
 /* Progress steps */
 .steps-strip {

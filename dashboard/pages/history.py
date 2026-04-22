@@ -58,14 +58,34 @@ if verdict_filter:
 tab1, tab2 = st.tabs(["Cases", "Details"])
 
 with tab1:
-    st.subheader(f"Cases ({len(filtered)})")
+    # Search filter
+    search_query = st.text_input(
+        "Search",
+        placeholder="Search by date, type, or root cause",
+        label_visibility="collapsed",
+    )
+
+    # Apply search filter
+    searched = filtered
+    if search_query:
+        search_lower = search_query.lower()
+        searched = [i for i in filtered if (
+            search_lower in str(i.get("created_at", "")).lower() or
+            search_lower in str(i.get("incident_type", "")).lower() or
+            search_lower in str(i.get("reported_root_cause", "")).lower()
+        )]
+
+    st.subheader(f"Cases ({len(searched)})")
+
+    # Build simple table
     rows = []
-    for inv in sorted(filtered, key=lambda x: x.get("created_at", ""), reverse=True):
+    for inv in sorted(searched, key=lambda x: x.get("created_at", ""), reverse=True):
+        verdict_text = inv.get("verdict", "pending")
         rows.append([
             str(inv.get("created_at", "—"))[:10],
             inv.get("incident_type", "—"),
             f"{inv.get('reported_confidence', 0):.0%}",
-            f"{render_status_dot(inv.get('verdict'))} {inv.get('verdict', 'pending')}",
+            f"{render_status_dot(inv.get('verdict'))} {verdict_text}",
         ])
 
     st.html(render_data_table(
@@ -78,7 +98,7 @@ with tab2:
     st.subheader("Investigation details")
     selected = st.selectbox(
         "Select an investigation:",
-        [i["incident_id"] for i in filtered],
+        [i["incident_id"] for i in searched] if searched else [i["incident_id"] for i in filtered],
         format_func=lambda x: x.split("_")[0],
         label_visibility="collapsed",
     )

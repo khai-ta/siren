@@ -1,5 +1,32 @@
 """UI utility functions for the dark-mode design system."""
 
+def get_severity_level(confidence: float) -> tuple[str, str]:
+    """
+    Determine severity level and color from confidence score.
+    Returns (severity_name, bg_color_class)
+    """
+    if confidence >= 0.9:
+        return "critical", "severity-critical"
+    elif confidence >= 0.75:
+        return "high", "severity-high"
+    elif confidence >= 0.6:
+        return "medium", "severity-medium"
+    else:
+        return "low", "severity-low"
+
+
+def render_status_badge(verdict: str | None) -> str:
+    """Render a small status badge for verdict."""
+    if verdict == "correct":
+        return '<span class="badge badge-correct">Correct</span>'
+    elif verdict == "incorrect":
+        return '<span class="badge badge-incorrect">Incorrect</span>'
+    elif verdict == "partial":
+        return '<span class="badge badge-partial">Partial</span>'
+    else:
+        return '<span class="badge badge-pending">Pending</span>'
+
+
 def render_kpi_strip(metrics: list[dict]) -> str:
     """
     Render a KPI strip with evenly-spaced cells.
@@ -73,6 +100,63 @@ def render_data_table(headers: list[str], rows: list[list], classes: list[str] |
         html += '</tr>'
 
     html += '</tbody></table>'
+    return html
+
+
+def render_data_table_with_severity(
+    headers: list[str],
+    rows: list[list],
+    severity_levels: list[str],
+    classes: list[str] | None = None,
+    table_id: str = "data-table",
+) -> str:
+    """
+    Render a data table with severity-based row coloring and clickable rows.
+
+    Args:
+        headers: list of column headers
+        rows: list of lists (each inner list is a row)
+        severity_levels: list of severity class names (e.g. ["severity-critical", "severity-high", ...])
+        classes: list of CSS classes for each column
+        table_id: HTML id for the table (used for JavaScript clicks)
+
+    Returns:
+        HTML string with embedded JavaScript for row clicks
+    """
+    if classes is None:
+        classes = [""] * len(headers)
+
+    html = f'<table class="data-table" id="{table_id}"><thead><tr>'
+    for header in headers:
+        html += f'<th>{header}</th>'
+    html += '</tr></thead><tbody>'
+
+    for idx, row in enumerate(rows):
+        severity_class = severity_levels[idx] if idx < len(severity_levels) else ""
+        html += f'<tr class="{severity_class}" data-row-index="{idx}">'
+        for i, cell in enumerate(row):
+            cls = f' class="{classes[i]}"' if i < len(classes) and classes[i] else ""
+            html += f'<td{cls}>{cell}</td>'
+        html += '</tr>'
+
+    html += '</tbody></table>'
+
+    # JavaScript to handle row clicks
+    html += f'''
+<script>
+const table = document.getElementById("{table_id}");
+if (table) {{
+  const rows = table.querySelectorAll("tbody tr");
+  rows.forEach((row, idx) => {{
+    row.style.cursor = "pointer";
+    row.addEventListener("click", () => {{
+      window.parent.postMessage({{type: "row_click", rowIndex: idx, tableId: "{table_id}"}}, "*");
+    }});
+  }});
+}}
+</script>
+'''
+
     return html
 
 
