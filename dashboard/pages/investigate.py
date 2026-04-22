@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import streamlit as st
-from datetime import datetime
 
 from retrieval.indexer import index_incident
 from retrieval.orchestrator import SirenQueryEngine
@@ -22,19 +21,26 @@ from simulator.topology import DEPENDENCIES
 inject_styles()
 
 st.title("Investigate incident")
-st.caption("Analyze metrics, logs, and traces to find root cause")
+st.caption("Analyze incident data to determine root cause")
 
 metrics_files = sorted(Path("data/metrics").glob("*.csv"), reverse=True)
 if not metrics_files:
     st.warning("No incidents available. Run: `python simulator/run.py`")
     st.stop()
 
+# Filter out seed files and limit to 20 most recent incidents
+recent_files = [f for f in metrics_files if "seed" not in f.name.lower()][:20]
+if not recent_files:
+    st.warning("No real incidents available. Run: `python simulator/run.py`")
+    st.stop()
+
 st.write("**Select an incident to analyze:**")
 selected = st.selectbox(
     "Incident",
-    metrics_files,
+    recent_files,
     format_func=lambda p: p.name.replace(".csv", ""),
     label_visibility="collapsed",
+    help="Select from 20 most recent incidents detected by the system"
 )
 
 if st.button("Analyze", type="primary"):
@@ -205,6 +211,9 @@ if st.button("Analyze", type="primary"):
             st.metric("Origin", final_state["final_root_cause"])
         with col2:
             st.metric("Confidence", f"{final_state['final_confidence']:.0%}")
+
+        st.divider()
+        st.markdown(final_state["final_report"])
 
         st.subheader("Topology")
         fig = render_dependency_graph(affected_services=affected, origin_service=origin)

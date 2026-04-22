@@ -16,16 +16,12 @@ st.set_page_config(
 
 from dashboard.components.styles import inject_styles
 from dashboard.components.ui_utils import render_kpi_strip, render_status_dot, render_data_table
+from detection import detect
 
 inject_styles()
 
 st.title("Siren")
-st.caption("Incident investigation assistant")
-
-st.markdown(
-    "Recent investigations and system accuracy. Go to **Investigate** to start a new case.",
-    unsafe_allow_html=True
-)
+st.caption("Autonomous incident investigation system")
 
 try:
     from feedback.store import FeedbackStore
@@ -33,6 +29,9 @@ try:
 
     store = FeedbackStore()
     investigations = store.list_investigations(limit=500)
+
+    # Filter out seed investigations
+    investigations = [i for i in investigations if "seed" not in i.get("incident_id", "").lower()]
 
     if not investigations:
         st.info("No investigations yet. Start from the Investigate page.")

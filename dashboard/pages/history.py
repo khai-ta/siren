@@ -15,7 +15,7 @@ from feedback.store import FeedbackStore
 inject_styles()
 
 st.title("Investigation history")
-st.caption("Browse past cases and review feedback")
+st.caption("Review past investigations and system verdicts")
 
 try:
     store = FeedbackStore()
@@ -23,6 +23,9 @@ try:
 except Exception as e:
     st.error("Cannot connect to database.")
     st.stop()
+
+# Filter out seed investigations
+investigations = [i for i in investigations if "seed" not in i.get("incident_id", "").lower()]
 
 if not investigations:
     st.info("No investigations yet.")
@@ -51,32 +54,35 @@ if type_filter:
 if verdict_filter:
     filtered = [i for i in filtered if i.get("verdict") in verdict_filter]
 
-# Table
-st.subheader(f"Cases ({len(filtered)})")
-rows = []
-for inv in sorted(filtered, key=lambda x: x.get("created_at", ""), reverse=True):
-    rows.append([
-        str(inv.get("created_at", "—"))[:10],
-        inv.get("incident_type", "—"),
-        f"{inv.get('reported_confidence', 0):.0%}",
-        f"{render_status_dot(inv.get('verdict'))} {inv.get('verdict', 'pending')}",
-    ])
+# Tabs for cases and details
+tab1, tab2 = st.tabs(["Cases", "Details"])
 
-st.html(render_data_table(
-    ["Date", "Type", "Confidence", "Verdict"],
-    rows,
-    classes=["", "", "col-data", "col-muted"],
-))
+with tab1:
+    st.subheader(f"Cases ({len(filtered)})")
+    rows = []
+    for inv in sorted(filtered, key=lambda x: x.get("created_at", ""), reverse=True):
+        rows.append([
+            str(inv.get("created_at", "—"))[:10],
+            inv.get("incident_type", "—"),
+            f"{inv.get('reported_confidence', 0):.0%}",
+            f"{render_status_dot(inv.get('verdict'))} {inv.get('verdict', 'pending')}",
+        ])
 
-# Detail
-st.divider()
-selected = st.selectbox(
-    "View details:",
-    [i["incident_id"] for i in filtered],
-    format_func=lambda x: x.split("_")[0],
-    label_visibility="collapsed",
-)
+    st.html(render_data_table(
+        ["Date", "Type", "Confidence", "Verdict"],
+        rows,
+        classes=["", "", "col-data", "col-muted"],
+    ))
 
-if selected:
-    inv = store.get_investigation(selected)
-    st.markdown(inv.get("final_report", "No report"))
+with tab2:
+    st.subheader("Investigation details")
+    selected = st.selectbox(
+        "Select an investigation:",
+        [i["incident_id"] for i in filtered],
+        format_func=lambda x: x.split("_")[0],
+        label_visibility="collapsed",
+    )
+
+    if selected:
+        inv = store.get_investigation(selected)
+        st.markdown(inv.get("final_report", "No report"))
