@@ -401,15 +401,16 @@ Report saved to data/reports/2026-04-21_cascading_timeout_2026-04-20_03:29_agent
 ### Web Interface
 
 ```bash
-streamlit run dashboard/app.py
+streamlit run dashboard/overview.py
 ```
 
 Opens http://localhost:8501 with pages:
 
-1. **Live Incident** — Real-time investigation UI (upload metrics CSV, see live investigation)
-2. **History** — Browse past investigations, provide verdict (correct/partial/wrong), see impact on weights
-3. **Dependency Graph** — 3D service topology from Neo4j
-4. **Self-Improvement** — Accuracy trend, weight evolution, source effectiveness
+1. **Overview** — Key metrics (total cases, reviewed count, accuracy), recent investigations summary
+2. **Investigate** — Real-time incident analysis: select incident, run autonomous investigation, view report/topology/metrics, provide feedback
+3. **History** — Browse past investigations with search by date/type/root cause, view full investigation reports
+4. **Dependencies** — Service topology graph showing relationships and SLA metrics (RPS, latency, error rates, CPU, memory)
+5. **System Analysis** — Performance metrics: accuracy trends, failure analysis, confidence gaps, retrieval tool effectiveness, weight optimization
 
 ## Common Workflows
 

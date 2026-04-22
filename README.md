@@ -156,12 +156,13 @@ data/incidents/cascading_timeout/
 ### 3. Provide Feedback & Optimize
 
 ```bash
-streamlit run dashboard/app.py
+streamlit run dashboard/overview.py
 ```
 
-Navigate to "History" → select investigation → provide verdict (correct/partial/wrong).
-
-Then "Self-Improvement" → "Recompute weights" to incorporate feedback into retrieval optimization.
+1. Go to **Investigate** → select an incident → click "Analyze"
+2. Review the investigation report and provide feedback in the form
+3. Go to **History** → search and review past investigations
+4. Go to **System Analysis** → click "Recompute weights" to optimize retrieval based on feedback
 
 ## Code Layout
 
@@ -286,9 +287,17 @@ See `docs/API_REFERENCE.md` for full signatures and examples.
 ### Dashboard
 
 ```bash
-streamlit run dashboard/app.py
+streamlit run dashboard/overview.py
 ```
-Real-time investigation, feedback collection, weight analysis.
+
+**Pages:**
+- **Overview** — Key metrics (total cases, reviewed count, accuracy), recent investigations table
+- **Investigate** — Live incident analysis: select incident, run analysis, view results, report, topology, and provide feedback
+- **History** — Past investigations with search/filter by date/type/root cause, view full investigation reports
+- **Dependencies** — Service topology graph showing relationships and SLA metrics (RPS, latency, error rate, CPU, memory)
+- **System Analysis** — Performance metrics: accuracy trends, failure analysis, confidence gaps, retrieval tool effectiveness, weight optimization
+
+**Features:** Dark-mode design, real-time analysis, feedback-driven learning, searchable investigation history.
 
 ## Tuning & Optimization
 

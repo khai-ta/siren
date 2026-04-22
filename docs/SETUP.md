@@ -236,7 +236,7 @@ python investigate.py data/incidents/cascading_timeout/metrics.csv --reindex
 ### Option 2: Streamlit Dashboard
 
 ```bash
-streamlit run dashboard/app.py
+streamlit run dashboard/overview.py
 ```
 
 Visit http://localhost:8501
@@ -313,7 +313,7 @@ services:
       REDIS_URL: redis://redis:6379
     ports:
       - "8501:8501"  # Streamlit
-    command: streamlit run dashboard/app.py
+    command: streamlit run dashboard/overview.py
 
 volumes:
   postgres_data:

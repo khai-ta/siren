@@ -404,7 +404,7 @@ PRIMARY KEY (source, incident_type)
 
 **Currently Implemented:**
 - CSV metrics ingestion via `python investigate.py <metrics.csv>` (programmatic API in `investigate.run_investigation()`)
-- Streamlit dashboard (`dashboard/app.py`) for feedback collection and analysis
+- Streamlit dashboard (`dashboard/overview.py`) for feedback collection and analysis
 - PostgreSQL for persistent storage
 
 **Possible Future Integrations:**
